@@ -43,11 +43,21 @@ function errorHandler(err, req, res, next) {
     });
   }
 
-  // Database errors
-  if (err.code === 'EREQUEST' || err.code === 'ELOGIN' || err.name === 'MSSQLError') {
-    return res.status(500).json({
+  // MongoDB duplicate key error
+  if (err.code === 11000) {
+    const field = Object.keys(err.keyPattern || {})[0] || 'field';
+    return res.status(409).json({
       success: false,
-      error: 'Database communication error. Please try again.'
+      error: `A record with this ${field} already exists.`
+    });
+  }
+
+  // Mongoose validation error
+  if (err.name === 'ValidationError') {
+    const messages = Object.values(err.errors).map(e => e.message);
+    return res.status(400).json({
+      success: false,
+      error: messages.join(', ')
     });
   }
 

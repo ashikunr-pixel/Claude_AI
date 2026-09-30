@@ -1,5 +1,15 @@
 const ExcelJS = require('exceljs');
-const db = require('../config/database');
+const {
+  Task,
+  ApiRequest,
+  ApiUsage,
+  Prompt,
+  File,
+  GeneratedResult,
+  ModelPricing,
+  AiFeature,
+  User
+} = require('../models');
 const { getBudgetStatus } = require('./budget.service');
 
 // Helper to style an Excel table header row
@@ -41,34 +51,29 @@ function autoFitColumns(worksheet) {
  */
 async function generateResultExcel(taskId, userId = null, role = 'USER') {
   const isAdmin = role === 'ADMIN';
-  const params = { taskId };
-  let authFilter = '';
+  const numericTaskId = parseInt(taskId, 10);
+
+  const query = { task_id: numericTaskId };
   if (!isAdmin && userId) {
-    authFilter = 'AND t.user_id = @userId';
-    params.userId = userId;
+    query.user_id = userId;
   }
 
-  const querySql = `
-    SELECT 
-      t.task_id, t.task_type, t.status, t.created_at, t.completed_at,
-      p.original_prompt, p.optimized_prompt, p.optimization_mode,
-      r.model, r.processing_time_ms,
-      us.input_tokens, us.output_tokens, us.total_tokens, us.request_cost,
-      gr.result_content, gr.result_format
-    FROM dbo.tasks t
-    LEFT JOIN dbo.prompts p ON t.task_id = p.task_id
-    LEFT JOIN dbo.api_requests r ON t.task_id = r.task_id
-    LEFT JOIN dbo.api_usage us ON r.request_id = us.request_id
-    LEFT JOIN dbo.generated_results gr ON t.task_id = gr.task_id
-    WHERE t.task_id = @taskId ${authFilter}
-  `;
-
-  const res = await db.query(querySql, params);
-  if (res.recordset.length === 0) {
+  const task = await Task.findOne(query).lean();
+  if (!task) {
     throw new Error('Task result not found or access denied.');
   }
 
-  const row = res.recordset[0];
+  const [prompt, request, gr] = await Promise.all([
+    Prompt.findOne({ task_id: numericTaskId }).lean(),
+    ApiRequest.findOne({ task_id: numericTaskId }).lean(),
+    GeneratedResult.findOne({ task_id: numericTaskId }).lean()
+  ]);
+
+  let usage = null;
+  if (request) {
+    usage = await ApiUsage.findOne({ request_id: request.request_id }).lean();
+  }
+
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Claude AI Platform';
   workbook.created = new Date();
@@ -81,16 +86,16 @@ async function generateResultExcel(taskId, userId = null, role = 'USER') {
   ];
   applyHeaderStyle(resultSheet.getRow(1));
 
-  resultSheet.addRow({ attr: 'Task ID', val: row.task_id });
-  resultSheet.addRow({ attr: 'Task Type', val: row.task_type });
-  resultSheet.addRow({ attr: 'Model', val: row.model || 'N/A' });
-  resultSheet.addRow({ attr: 'Status', val: row.status });
-  resultSheet.addRow({ attr: 'Input Tokens', val: row.input_tokens || 0 });
-  resultSheet.addRow({ attr: 'Output Tokens', val: row.output_tokens || 0 });
-  resultSheet.addRow({ attr: 'Total Tokens', val: row.total_tokens || 0 });
-  resultSheet.addRow({ attr: 'Request Cost ($)', val: row.request_cost || 0 });
-  resultSheet.addRow({ attr: 'Original Prompt', val: row.original_prompt || '' });
-  resultSheet.addRow({ attr: 'Result Content', val: row.result_content || '' });
+  resultSheet.addRow({ attr: 'Task ID', val: task.task_id });
+  resultSheet.addRow({ attr: 'Task Type', val: task.task_type });
+  resultSheet.addRow({ attr: 'Model', val: request?.model || 'N/A' });
+  resultSheet.addRow({ attr: 'Status', val: task.status });
+  resultSheet.addRow({ attr: 'Input Tokens', val: usage?.input_tokens || 0 });
+  resultSheet.addRow({ attr: 'Output Tokens', val: usage?.output_tokens || 0 });
+  resultSheet.addRow({ attr: 'Total Tokens', val: usage?.total_tokens || 0 });
+  resultSheet.addRow({ attr: 'Request Cost ($)', val: usage?.request_cost || 0 });
+  resultSheet.addRow({ attr: 'Original Prompt', val: prompt?.original_prompt || '' });
+  resultSheet.addRow({ attr: 'Result Content', val: gr?.result_text || '' });
 
   resultSheet.getColumn(2).alignment = { wrapText: true };
 
@@ -102,30 +107,22 @@ async function generateResultExcel(taskId, userId = null, role = 'USER') {
  */
 async function generateUsageExcel(userId = null, role = 'USER') {
   const isAdmin = role === 'ADMIN';
-  const params = {};
-  let userFilter = '';
-  if (!isAdmin && userId) {
-    userFilter = 'WHERE r.user_id = @userId';
-    params.userId = userId;
-  }
+  const query = !isAdmin && userId ? { user_id: userId } : {};
 
-  const querySql = `
-    SELECT 
-      r.request_id, r.created_at, u.name AS user_name,
-      r.model, r.provider, r.status, r.processing_time_ms,
-      t.task_type,
-      us.input_tokens, us.output_tokens, us.total_tokens,
-      us.request_cost, us.cumulative_cost, us.remaining_budget
-    FROM dbo.api_requests r
-    JOIN dbo.users u ON r.user_id = u.user_id
-    LEFT JOIN dbo.tasks t ON r.task_id = t.task_id
-    LEFT JOIN dbo.api_usage us ON r.request_id = us.request_id
-    ${userFilter}
-    ORDER BY r.created_at DESC
-  `;
+  const requests = await ApiRequest.find(query).sort({ created_at: -1 }).lean();
+  const requestIds = requests.map(r => r.request_id);
+  const taskIds = requests.map(r => r.task_id);
+  const userIds = [...new Set(requests.map(r => r.user_id))];
 
-  const res = await db.query(querySql, params);
-  const rows = res.recordset;
+  const [usages, tasks, users] = await Promise.all([
+    ApiUsage.find({ request_id: { $in: requestIds } }).lean(),
+    Task.find({ task_id: { $in: taskIds } }).lean(),
+    User.find({ user_id: { $in: userIds } }).lean()
+  ]);
+
+  const usageMap = new Map(usages.map(u => [u.request_id, u]));
+  const taskMap = new Map(tasks.map(t => [t.task_id, t]));
+  const userMap = new Map(users.map(u => [u.user_id, u]));
 
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('API Usage Report');
@@ -148,19 +145,23 @@ async function generateUsageExcel(userId = null, role = 'USER') {
 
   applyHeaderStyle(sheet.getRow(1));
 
-  rows.forEach((r) => {
+  requests.forEach((r) => {
+    const us = usageMap.get(r.request_id) || {};
+    const t = taskMap.get(r.task_id) || {};
+    const u = userMap.get(r.user_id) || {};
+
     const row = sheet.addRow({
       request_id: r.request_id,
       created_at: new Date(r.created_at).toISOString().replace('T', ' ').substring(0, 19),
-      user_name: r.user_name,
-      task_type: r.task_type || 'Custom',
+      user_name: u.name || 'User',
+      task_type: t.task_type || 'Custom',
       model: r.model,
-      input_tokens: r.input_tokens || 0,
-      output_tokens: r.output_tokens || 0,
-      total_tokens: r.total_tokens || 0,
-      request_cost: r.request_cost ? Number(r.request_cost) : 0,
-      cumulative_cost: r.cumulative_cost ? Number(r.cumulative_cost) : 0,
-      remaining_budget: r.remaining_budget ? Number(r.remaining_budget) : 5,
+      input_tokens: us.input_tokens || 0,
+      output_tokens: us.output_tokens || 0,
+      total_tokens: us.total_tokens || 0,
+      request_cost: us.request_cost ? Number(us.request_cost) : 0,
+      cumulative_cost: us.cumulative_cost ? Number(us.cumulative_cost) : 0,
+      remaining_budget: us.remaining_budget ? Number(us.remaining_budget) : 5,
       processing_time_ms: r.processing_time_ms || 0,
       status: r.status
     });
@@ -175,27 +176,9 @@ async function generateUsageExcel(userId = null, role = 'USER') {
 
 /**
  * Generate Complete Master 10-Sheet Excel Report
- * Sheets:
- * 1. Summary
- * 2. Tasks
- * 3. API Requests
- * 4. Prompts
- * 5. Token Usage
- * 6. Costs
- * 7. Files
- * 8. AI Features
- * 9. Models
- * 10. Errors
  */
 async function generateCompleteMasterExcel(userId = null, role = 'USER') {
   const isAdmin = role === 'ADMIN';
-  const params = {};
-  let userFilter = '';
-  if (!isAdmin && userId) {
-    userFilter = 'WHERE t.user_id = @userId';
-    params.userId = userId;
-  }
-
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Claude AI Platform Enterprise';
   workbook.created = new Date();
@@ -209,23 +192,26 @@ async function generateCompleteMasterExcel(userId = null, role = 'USER') {
   ];
   applyHeaderStyle(summarySheet.getRow(1));
 
-  const totalReqRes = await db.query(
-    `SELECT COUNT(*) AS total_req, ISNULL(SUM(input_tokens), 0) AS total_in, ISNULL(SUM(output_tokens), 0) AS total_out, ISNULL(SUM(total_tokens), 0) AS total_all, ISNULL(SUM(request_cost), 0.0) AS total_cost
-     FROM dbo.api_usage u
-     JOIN dbo.api_requests r ON u.request_id = r.request_id
-     ${!isAdmin && userId ? 'WHERE r.user_id = @userId' : ''}`,
-    params
-  );
-  const sumData = totalReqRes.recordset[0];
+  const usages = await ApiUsage.find().lean();
+  let totalIn = 0;
+  let totalOut = 0;
+  let totalAll = 0;
+  let totalCost = 0;
+  usages.forEach(u => {
+    totalIn += (u.input_tokens || 0);
+    totalOut += (u.output_tokens || 0);
+    totalAll += (u.total_tokens || 0);
+    totalCost += (u.request_cost || 0);
+  });
 
   summarySheet.addRow({ metric: 'Configured Application Safety Budget', val: `$${budget.budgetUsd.toFixed(2)} USD` });
   summarySheet.addRow({ metric: 'Cumulative Tracked Spending', val: `$${budget.cumulativeSpent.toFixed(6)} USD` });
   summarySheet.addRow({ metric: 'Remaining Application Budget', val: `$${budget.remainingBudget.toFixed(6)} USD` });
   summarySheet.addRow({ metric: 'Budget Utilization (%)', val: `${budget.usagePercentage.toFixed(2)}%` });
-  summarySheet.addRow({ metric: 'Total API Requests Completed', val: sumData.total_req });
-  summarySheet.addRow({ metric: 'Total Input Tokens Consumed', val: sumData.total_in });
-  summarySheet.addRow({ metric: 'Total Output Tokens Generated', val: sumData.total_out });
-  summarySheet.addRow({ metric: 'Total Tokens Tracked', val: sumData.total_all });
+  summarySheet.addRow({ metric: 'Total API Requests Completed', val: usages.length });
+  summarySheet.addRow({ metric: 'Total Input Tokens Consumed', val: totalIn });
+  summarySheet.addRow({ metric: 'Total Output Tokens Generated', val: totalOut });
+  summarySheet.addRow({ metric: 'Total Tokens Tracked', val: totalAll });
   summarySheet.addRow({ metric: 'Report Generated UTC', val: new Date().toISOString() });
   summarySheet.addRow({ metric: 'Report Scope', val: isAdmin ? 'Full Enterprise System' : 'User Private Workspace' });
 
@@ -240,11 +226,15 @@ async function generateCompleteMasterExcel(userId = null, role = 'USER') {
   ];
   applyHeaderStyle(tasksSheet.getRow(1));
 
-  const tasksRes = await db.query(
-    `SELECT task_id, task_type, status, created_at, completed_at FROM dbo.tasks t ${userFilter} ORDER BY task_id DESC`,
-    params
-  );
-  tasksRes.recordset.forEach(r => tasksSheet.addRow(r));
+  const taskFilter = !isAdmin && userId ? { user_id: userId } : {};
+  const tasks = await Task.find(taskFilter).sort({ task_id: -1 }).lean();
+  tasks.forEach(t => tasksSheet.addRow({
+    task_id: t.task_id,
+    task_type: t.task_type,
+    status: t.status,
+    created_at: t.created_at ? new Date(t.created_at).toISOString() : '',
+    completed_at: t.completed_at ? new Date(t.completed_at).toISOString() : ''
+  }));
 
   // 3. API Requests Sheet
   const reqSheet = workbook.addWorksheet('API Requests');
@@ -259,14 +249,16 @@ async function generateCompleteMasterExcel(userId = null, role = 'USER') {
   ];
   applyHeaderStyle(reqSheet.getRow(1));
 
-  const reqRes = await db.query(
-    `SELECT request_id, task_id, model, provider, status, processing_time_ms, created_at 
-     FROM dbo.api_requests r 
-     ${!isAdmin && userId ? 'WHERE r.user_id = @userId' : ''} 
-     ORDER BY request_id DESC`,
-    params
-  );
-  reqRes.recordset.forEach(r => reqSheet.addRow(r));
+  const requests = await ApiRequest.find(taskFilter).sort({ request_id: -1 }).lean();
+  requests.forEach(r => reqSheet.addRow({
+    request_id: r.request_id,
+    task_id: r.task_id,
+    model: r.model,
+    provider: r.provider,
+    status: r.status,
+    processing_time_ms: r.processing_time_ms,
+    created_at: r.created_at ? new Date(r.created_at).toISOString() : ''
+  }));
 
   // 4. Prompts Sheet
   const promptsSheet = workbook.addWorksheet('Prompts');
@@ -280,15 +272,8 @@ async function generateCompleteMasterExcel(userId = null, role = 'USER') {
   ];
   applyHeaderStyle(promptsSheet.getRow(1));
 
-  const promptsRes = await db.query(
-    `SELECT p.prompt_id, p.task_id, p.optimization_mode, p.original_prompt, p.optimized_prompt, p.changes_summary
-     FROM dbo.prompts p
-     JOIN dbo.tasks t ON p.task_id = t.task_id
-     ${userFilter}
-     ORDER BY p.prompt_id DESC`,
-    params
-  );
-  promptsRes.recordset.forEach(r => promptsSheet.addRow(r));
+  const prompts = await Prompt.find().sort({ prompt_id: -1 }).lean();
+  prompts.forEach(p => promptsSheet.addRow(p));
 
   // 5. Token Usage Sheet
   const tokenSheet = workbook.addWorksheet('Token Usage');
@@ -302,15 +287,7 @@ async function generateCompleteMasterExcel(userId = null, role = 'USER') {
   ];
   applyHeaderStyle(tokenSheet.getRow(1));
 
-  const tokenRes = await db.query(
-    `SELECT u.usage_id, u.request_id, u.input_tokens, u.output_tokens, u.total_tokens, u.cache_read_tokens
-     FROM dbo.api_usage u
-     JOIN dbo.api_requests r ON u.request_id = r.request_id
-     ${!isAdmin && userId ? 'WHERE r.user_id = @userId' : ''}
-     ORDER BY u.usage_id DESC`,
-    params
-  );
-  tokenRes.recordset.forEach(r => tokenSheet.addRow(r));
+  usages.forEach(u => tokenSheet.addRow(u));
 
   // 6. Costs Sheet
   const costSheet = workbook.addWorksheet('Costs');
@@ -323,21 +300,13 @@ async function generateCompleteMasterExcel(userId = null, role = 'USER') {
   ];
   applyHeaderStyle(costSheet.getRow(1));
 
-  const costRes = await db.query(
-    `SELECT u.usage_id, u.request_id, u.request_cost, u.cumulative_cost, u.remaining_budget
-     FROM dbo.api_usage u
-     JOIN dbo.api_requests r ON u.request_id = r.request_id
-     ${!isAdmin && userId ? 'WHERE r.user_id = @userId' : ''}
-     ORDER BY u.usage_id DESC`,
-    params
-  );
-  costRes.recordset.forEach(r => {
+  usages.forEach(u => {
     const rw = costSheet.addRow({
-      usage_id: r.usage_id,
-      request_id: r.request_id,
-      request_cost: Number(r.request_cost),
-      cumulative_cost: Number(r.cumulative_cost),
-      remaining_budget: Number(r.remaining_budget)
+      usage_id: u.usage_id,
+      request_id: u.request_id,
+      request_cost: Number(u.request_cost || 0),
+      cumulative_cost: Number(u.cumulative_cost || 0),
+      remaining_budget: Number(u.remaining_budget || 5)
     });
     rw.getCell('request_cost').numFmt = '$#,##0.000000';
     rw.getCell('cumulative_cost').numFmt = '$#,##0.000000';
@@ -355,14 +324,8 @@ async function generateCompleteMasterExcel(userId = null, role = 'USER') {
   ];
   applyHeaderStyle(filesSheet.getRow(1));
 
-  const filesRes = await db.query(
-    `SELECT file_id, file_name, file_type, file_size, created_at 
-     FROM dbo.files f 
-     ${!isAdmin && userId ? 'WHERE f.user_id = @userId' : ''} 
-     ORDER BY file_id DESC`,
-    params
-  );
-  filesRes.recordset.forEach(r => filesSheet.addRow(r));
+  const files = await File.find().sort({ file_id: -1 }).lean();
+  files.forEach(f => filesSheet.addRow(f));
 
   // 8. AI Features Sheet
   const featSheet = workbook.addWorksheet('AI Features');
@@ -374,8 +337,8 @@ async function generateCompleteMasterExcel(userId = null, role = 'USER') {
   ];
   applyHeaderStyle(featSheet.getRow(1));
 
-  const featRes = await db.query('SELECT feature_id, feature_name, category, description FROM dbo.ai_features ORDER BY category, feature_name');
-  featRes.recordset.forEach(r => featSheet.addRow(r));
+  const features = await AiFeature.find().sort({ category: 1, feature_name: 1 }).lean();
+  features.forEach(f => featSheet.addRow(f));
 
   // 9. Models Sheet
   const modelsSheet = workbook.addWorksheet('Models');
@@ -388,14 +351,14 @@ async function generateCompleteMasterExcel(userId = null, role = 'USER') {
   ];
   applyHeaderStyle(modelsSheet.getRow(1));
 
-  const modelsRes = await db.query('SELECT model, input_price_per_million, output_price_per_million, cache_read_price, is_active FROM dbo.model_pricing');
-  modelsRes.recordset.forEach(r => {
+  const models = await ModelPricing.find().lean();
+  models.forEach(m => {
     modelsSheet.addRow({
-      model: r.model,
-      input_price_per_million: Number(r.input_price_per_million),
-      output_price_per_million: Number(r.output_price_per_million),
-      cache_read_price: Number(r.cache_read_price || 0),
-      status: r.is_active ? 'Active' : 'Inactive'
+      model: m.model,
+      input_price_per_million: Number(m.input_price_per_million),
+      output_price_per_million: Number(m.output_price_per_million),
+      cache_read_price: Number(m.cache_read_price || 0),
+      status: m.is_active ? 'Active' : 'Inactive'
     });
   });
 
@@ -409,14 +372,13 @@ async function generateCompleteMasterExcel(userId = null, role = 'USER') {
   ];
   applyHeaderStyle(errSheet.getRow(1));
 
-  const errRes = await db.query(
-    `SELECT request_id, model, error_message, created_at 
-     FROM dbo.api_requests 
-     WHERE status = 'FAILED' ${!isAdmin && userId ? 'AND user_id = @userId' : ''} 
-     ORDER BY request_id DESC`,
-    params
-  );
-  errRes.recordset.forEach(r => errSheet.addRow(r));
+  const failedRequests = await ApiRequest.find({ status: 'FAILED' }).sort({ request_id: -1 }).lean();
+  failedRequests.forEach(r => errSheet.addRow({
+    request_id: r.request_id,
+    model: r.model,
+    error_message: r.error_message || '',
+    created_at: r.created_at ? new Date(r.created_at).toISOString() : ''
+  }));
 
   return workbook;
 }

@@ -1,4 +1,4 @@
-const db = require('../config/database');
+const { ApiRequest, ApiUsage, Task, User, Prompt } = require('../models');
 const { generateUsageExcel, generateCompleteMasterExcel } = require('../services/export.service');
 const { getBudgetStatus } = require('../services/budget.service');
 
@@ -10,35 +10,55 @@ async function exportUsageJson(req, res, next) {
     const isAdmin = req.user.role === 'ADMIN';
     const userId = req.user.user_id;
 
-    let userFilter = '';
-    const params = {};
-    if (!isAdmin) {
-      userFilter = 'WHERE r.user_id = @userId';
-      params.userId = userId;
-    }
+    const query = !isAdmin && userId ? { user_id: userId } : {};
 
-    const querySql = `
-      SELECT 
-        r.request_id, r.created_at, r.model, r.provider, r.status, r.processing_time_ms,
-        t.task_id, t.task_type,
-        u.name AS user_name,
-        p.original_prompt,
-        us.input_tokens, us.output_tokens, us.total_tokens, us.request_cost, us.cumulative_cost, us.remaining_budget
-      FROM dbo.api_requests r
-      JOIN dbo.users u ON r.user_id = u.user_id
-      LEFT JOIN dbo.tasks t ON r.task_id = t.task_id
-      LEFT JOIN dbo.prompts p ON t.task_id = p.task_id
-      LEFT JOIN dbo.api_usage us ON r.request_id = us.request_id
-      ${userFilter}
-      ORDER BY r.created_at DESC
-    `;
+    const requests = await ApiRequest.find(query).sort({ created_at: -1 }).lean();
+    const requestIds = requests.map(r => r.request_id);
+    const taskIds = requests.map(r => r.task_id);
+    const userIds = [...new Set(requests.map(r => r.user_id))];
 
-    const result = await db.query(querySql, params);
+    const [usages, tasks, prompts, users] = await Promise.all([
+      ApiUsage.find({ request_id: { $in: requestIds } }).lean(),
+      Task.find({ task_id: { $in: taskIds } }).lean(),
+      Prompt.find({ task_id: { $in: taskIds } }).lean(),
+      User.find({ user_id: { $in: userIds } }).lean()
+    ]);
+
+    const usageMap = new Map(usages.map(u => [u.request_id, u]));
+    const taskMap = new Map(tasks.map(t => [t.task_id, t]));
+    const promptMap = new Map(prompts.map(p => [p.task_id, p]));
+    const userMap = new Map(users.map(u => [u.user_id, u]));
+
+    const data = requests.map(r => {
+      const us = usageMap.get(r.request_id) || {};
+      const t = taskMap.get(r.task_id) || {};
+      const p = promptMap.get(r.task_id) || {};
+      const u = userMap.get(r.user_id) || {};
+
+      return {
+        request_id: r.request_id,
+        created_at: r.created_at,
+        model: r.model,
+        provider: r.provider,
+        status: r.status,
+        processing_time_ms: r.processing_time_ms,
+        task_id: r.task_id,
+        task_type: t.task_type || 'General',
+        user_name: u.name || 'User',
+        original_prompt: p.original_prompt || '',
+        input_tokens: us.input_tokens || 0,
+        output_tokens: us.output_tokens || 0,
+        total_tokens: us.total_tokens || 0,
+        request_cost: us.request_cost || 0,
+        cumulative_cost: us.cumulative_cost || 0,
+        remaining_budget: us.remaining_budget || 5.0
+      };
+    });
+
     const dateStr = new Date().toISOString().substring(0, 10);
-
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', `attachment; filename="ai_usage_report_${dateStr}.json"`);
-    res.send(JSON.stringify(result.recordset, null, 2));
+    res.send(JSON.stringify(data, null, 2));
   } catch (err) {
     next(err);
   }
@@ -90,26 +110,19 @@ async function exportCompleteReportJson(req, res, next) {
     const dateStr = new Date().toISOString().substring(0, 10);
 
     const budget = await getBudgetStatus();
+    const taskFilter = !isAdmin && userId ? { user_id: userId } : {};
 
-    let userFilter = '';
-    const params = {};
-    if (!isAdmin) {
-      userFilter = 'WHERE t.user_id = @userId';
-      params.userId = userId;
-    }
-
-    const tasksRes = await db.query(`SELECT * FROM dbo.tasks t ${userFilter} ORDER BY task_id DESC`, params);
-    const usageRes = await db.query(
-      `SELECT u.* FROM dbo.api_usage u JOIN dbo.api_requests r ON u.request_id = r.request_id ${!isAdmin ? 'WHERE r.user_id = @userId' : ''}`,
-      params
-    );
+    const [tasks, usages] = await Promise.all([
+      Task.find(taskFilter).sort({ task_id: -1 }).lean(),
+      ApiUsage.find().lean()
+    ]);
 
     const payload = {
       exportedAt: new Date().toISOString(),
       scope: isAdmin ? 'COMPLETE_SYSTEM' : 'USER_WORKSPACE',
       budget,
-      tasks: tasksRes.recordset,
-      usage: usageRes.recordset
+      tasks,
+      usage: usages
     };
 
     res.setHeader('Content-Type', 'application/json');

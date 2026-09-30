@@ -1,71 +1,85 @@
 const mongoose = require('mongoose');
 require('dotenv').config();
 
-let isConnected = false;
+let connectionPromise = null;
 
 async function connectMongo() {
+  if (mongoose.connection.readyState === 1) {
+    return true;
+  }
+
+  if (connectionPromise) {
+    return connectionPromise;
+  }
+
   const uri = process.env.MONGODB_URI;
   if (!uri) {
     console.log('[MongoDB] No MONGODB_URI found in .env, skipping MongoDB connection.');
     return false;
   }
 
-  try {
-    console.log('[MongoDB] Connecting to MongoDB Atlas cluster...');
-    await mongoose.connect(uri, {
-      serverSelectionTimeoutMS: 5000,
-      connectTimeoutMS: 5000
-    });
-    isConnected = true;
-    console.log('[MongoDB] Successfully connected to MongoDB Atlas!');
-
-    // Auto-seed if needed
+  connectionPromise = (async () => {
     try {
-      const { BudgetSetting } = require('../models');
-      const count = await BudgetSetting.countDocuments();
-      if (count === 0) {
-        console.log('[MongoDB] Initializing seed data in MongoDB...');
-        const seedMongo = require('./seed-mongo');
-        await seedMongo();
-      }
-    } catch (seedErr) {
-      console.warn('[MongoDB] Seed check warning:', seedErr.message);
-    }
+      console.log('[MongoDB] Connecting to MongoDB Atlas cluster...');
+      await mongoose.connect(uri, {
+        serverSelectionTimeoutMS: 30000,
+        connectTimeoutMS: 30000,
+        socketTimeoutMS: 45000,
+        maxPoolSize: 25,
+        minPoolSize: 2,
+        retryWrites: true
+      });
+      console.log('[MongoDB] Successfully connected to MongoDB Atlas!');
 
-    return true;
-  } catch (err) {
-    isConnected = false;
-    if (err.message.includes('whitelisted') || err.message.includes('Could not connect to any servers')) {
-      console.warn('--------------------------------------------------------------------------------');
-      console.warn('⚠️  MONGODB ATLAS IP WHITELIST REQUIRED:');
-      console.warn('MongoDB Atlas is blocking the connection because your current public IP address');
-      console.warn('is not added to your Atlas Network Access list.');
-      console.warn('👉 To enable MongoDB Atlas:');
-      console.warn('   1. Go to https://cloud.mongodb.com');
-      console.warn('   2. Click "Network Access" in the left sidebar under Security');
-      console.warn('   3. Click "Add IP Address"');
-      console.warn('   4. Choose "Allow Access from Anywhere" (0.0.0.0/0) or add your current IP');
-      console.warn('   5. Click Confirm');
-      console.warn('--------------------------------------------------------------------------------');
-    } else {
-      console.warn('[MongoDB] Connection warning:', err.message);
+      // Auto-seed if needed
+      try {
+        const { BudgetSetting } = require('../models');
+        const count = await BudgetSetting.countDocuments();
+        if (count === 0) {
+          console.log('[MongoDB] Initializing seed data in MongoDB...');
+          const seedMongo = require('./seed-mongo');
+          await seedMongo();
+        }
+      } catch (seedErr) {
+        console.warn('[MongoDB] Seed check warning:', seedErr.message);
+      }
+
+      return true;
+    } catch (err) {
+      if (err.message.includes('whitelisted') || err.message.includes('Could not connect to any servers') || err.message.includes('timed out')) {
+        console.warn('--------------------------------------------------------------------------------');
+        console.warn('⚠️  MONGODB ATLAS CONNECTION NOTICE:');
+        console.warn('Error:', err.message);
+        console.warn('👉 If your network blocks Atlas, verify:');
+        console.warn('   1. In https://cloud.mongodb.com -> Network Access, add 0.0.0.0/0');
+        console.warn('   2. Verify username and password in MONGODB_URI');
+        console.warn('--------------------------------------------------------------------------------');
+      } else {
+        console.warn('[MongoDB] Connection warning:', err.message);
+      }
+      return false;
+    } finally {
+      connectionPromise = null;
     }
-    return false;
-  }
+  })();
+
+  return connectionPromise;
 }
 
 mongoose.connection.on('disconnected', () => {
-  isConnected = false;
-  console.log('[MongoDB] Disconnected from MongoDB Atlas');
+  console.log('[MongoDB] Disconnected from MongoDB Atlas, attempting reconnect...');
+});
+
+mongoose.connection.on('reconnected', () => {
+  console.log('[MongoDB] Reconnected to MongoDB Atlas!');
 });
 
 mongoose.connection.on('error', (err) => {
-  isConnected = false;
   console.warn('[MongoDB] Runtime error:', err.message);
 });
 
 module.exports = {
   connectMongo,
-  isMongoConnected: () => isConnected,
+  isMongoConnected: () => mongoose.connection.readyState === 1,
   mongoose
 };

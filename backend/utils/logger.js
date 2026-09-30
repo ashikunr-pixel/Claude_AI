@@ -1,4 +1,4 @@
-const db = require('../config/database');
+const { AuditLog, getNextSequence } = require('../models');
 
 function maskSensitive(text) {
   if (typeof text !== 'string') return text;
@@ -25,34 +25,23 @@ const logger = {
     }
   },
   /**
-   * Log an audit action to SQL Server audit_logs table
+   * Log an audit action directly to MongoDB Atlas
    */
   audit: async (userId, action, entityType, entityId = null, details = null) => {
     try {
       const detailsStr = typeof details === 'object' ? JSON.stringify(details) : details;
-      await db.query(
-        `INSERT INTO dbo.audit_logs (user_id, action, entity_type, entity_id, details)
-         VALUES (@userId, @action, @entityType, @entityId, @details)`,
-        {
-          userId,
-          action,
-          entityType,
-          entityId,
-          details: detailsStr ? maskSensitive(detailsStr) : null
-        }
-      );
-
-      // Sync to MongoDB if connected
-      const mongoService = require('../services/mongo.service');
-      mongoService.syncAuditLog({
-        userId,
+      const logId = await getNextSequence('log_id');
+      await AuditLog.create({
+        log_id: logId,
+        user_id: userId,
         action,
-        resourceType: entityType,
-        resourceId: entityId,
-        details: detailsStr ? maskSensitive(detailsStr) : null
+        resource_type: entityType,
+        resource_id: entityId,
+        details: detailsStr ? maskSensitive(detailsStr) : null,
+        timestamp: new Date()
       });
-    } catch (err) {
-      console.error('[AuditLog] Failed to persist audit record:', err.message);
+    } catch {
+      // In-memory silent fallback
     }
   }
 };

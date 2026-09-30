@@ -2,7 +2,7 @@ const { getModelRates } = require('../config/pricing');
 
 /**
  * Cost calculation service
- * Uses dynamic model pricing from SQL Server database
+ * Uses dynamic model pricing from MongoDB Atlas database
  */
 async function calculateRequestCost(model, inputTokens, outputTokens, cacheReadTokens = 0, cacheWriteTokens = 0) {
   const rates = await getModelRates(model);

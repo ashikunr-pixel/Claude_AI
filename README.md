@@ -102,7 +102,7 @@ The platform is designed to provide full financial observability and task manage
 
 - **Frontend**: HTML5, Vanilla CSS3 (Glassmorphism design tokens), Vanilla JavaScript (ES6+), Chart.js 4.4.
 - **Backend**: Node.js v20+, Express.js 4.21, `@anthropic-ai/sdk`, `exceljs`, `pdf-parse`, `mammoth`, `multer`, `bcryptjs`, `jsonwebtoken`, `helmet`, `express-rate-limit`.
-- **Database**: Microsoft SQL Server 2016+ / SQL Server Express (using `mssql/msnodesqlv8` for native Windows Integrated Security).
+- **Database**: MongoDB Atlas Cluster (pure native Mongoose ODM, cloud multi-region replica set, zero C++ native compile dependencies).
 - **CLI Companion**: Python 3.10+ (`monitor.py`, `anthropic`, `python-dotenv`).
 
 ---
@@ -111,7 +111,7 @@ The platform is designed to provide full financial observability and task manage
 
 ### Prerequisites
 - Node.js (v18.0.0 or higher)
-- Microsoft SQL Server or SQL Server Express installed and running (`localhost\SQLEXPRESS`)
+- MongoDB Atlas Connection String (`MONGODB_URI`)
 - An Anthropic Claude API Key
 
 ### Step 1: Install Dependencies
@@ -230,7 +230,7 @@ Validates:
 ## 10. Security Architecture
 
 1. **API Key Isolation**: `ANTHROPIC_API_KEY` is loaded exclusively in backend Node.js memory. It is never passed to frontend scripts, never stored in the database, and never printed in server logs.
-2. **SQL Injection Defense**: All database queries are executed via SQL Server parameterized inputs using `mssql`.
+2. **NoSQL Injection Defense & Validation**: All database operations use strictly-typed Mongoose models with validation schemas and sanitization.
 3. **File Ingestion Protection**: Files are checked for whitelisted extensions (`.txt`, `.pdf`, `.docx`, `.csv`, `.json`, `.md`), restricted to 15MB, sanitized against path traversal (`../`), and stored with randomized suffixes.
 4. **Rate Limiting & Headers**: Protected by `express-rate-limit` (300 req / 15 min) and `helmet` HTTP security headers.
 5. **Data Isolation**: Standard users can only view and export their own tasks, files, prompts, and usage logs. Administrators have full system monitoring privileges.
@@ -239,9 +239,8 @@ Validates:
 
 ## 11. Troubleshooting
 
-- **Database Connection Failure**: Ensure the `MSSQL$SQLEXPRESS` Windows service is running. Run `Get-Service -Name *sql*` in PowerShell.
+- **MongoDB Atlas Connection Failure**: Verify `MONGODB_URI` in `.env` or in Render Environment settings. Ensure network access IP whitelist in Atlas includes `0.0.0.0/0` (Allow access from anywhere).
 - **Anthropic API Key Missing**: Ensure `ANTHROPIC_API_KEY` in `.env` contains your key starting with `sk-ant-`. If missing, the studio will display a clear warning.
-- **ODBC Driver Issue**: If ODBC Driver 17 is missing, check installed drivers using `Get-OdbcDriver -Name '*SQL Server*'`.
 
 ---
 

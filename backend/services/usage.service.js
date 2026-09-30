@@ -1,10 +1,20 @@
-const db = require('../config/database');
+const {
+  ApiUsage,
+  ApiRequest,
+  Task,
+  Prompt,
+  User,
+  File,
+  GeneratedResult,
+  AiFeature,
+  TaskFeature,
+  getNextSequence
+} = require('../models');
 const { calculateRequestCost } = require('./cost.service');
 const { getBudgetStatus } = require('./budget.service');
-const mongoService = require('./mongo.service');
 
 /**
- * Record usage after an API request completes
+ * Record usage after an API request completes (MongoDB Atlas)
  */
 async function recordRequestUsage({
   requestId,
@@ -31,67 +41,30 @@ async function recordRequestUsage({
   const newRemainingBudget = Math.max(0, Number((budget.budgetUsd - newCumulativeCost).toFixed(6)));
   const totalTokens = inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens;
 
-  let usageId = Math.floor(Date.now() / 1000);
-  try {
-    // Insert usage record
-    const result = await db.query(
-      `INSERT INTO dbo.api_usage (
-         request_id, input_tokens, output_tokens, total_tokens,
-         cache_creation_tokens, cache_read_tokens, request_cost,
-         cumulative_cost, remaining_budget, created_at
-       )
-       VALUES (
-         @requestId, @inputTokens, @outputTokens, @totalTokens,
-         @cacheCreationTokens, @cacheReadTokens, @requestCost,
-         @newCumulativeCost, @newRemainingBudget, SYSUTCDATETIME()
-       );
-       SELECT SCOPE_IDENTITY() AS usage_id;`,
-      {
-        requestId,
-        inputTokens,
-        outputTokens,
-        totalTokens,
-        cacheCreationTokens,
-        cacheReadTokens,
-        requestCost,
-        newCumulativeCost,
-        newRemainingBudget
-      }
-    );
+  const usageId = await getNextSequence('usageId');
 
-    usageId = result.recordset[0].usage_id;
-
-    // Update request status and time
-    await db.query(
-      `UPDATE dbo.api_requests 
-       SET status = @status, 
-           processing_time_ms = @processingTimeMs, 
-           error_message = @errorMessage 
-       WHERE request_id = @requestId`,
-      {
-        status,
-        processingTimeMs,
-        errorMessage,
-        requestId
-      }
-    );
-  } catch (sqlErr) {
-    console.warn('[UsageService] SQL write bypassed, syncing to MongoDB Atlas:', sqlErr.message);
-  }
-
-  // Sync to MongoDB if connected
-  mongoService.syncApiUsage({
-    usageId,
-    requestId,
-    inputTokens,
-    outputTokens,
-    totalTokens,
-    cacheCreationTokens,
-    cacheReadTokens,
-    requestCost,
-    cumulativeCost: newCumulativeCost,
-    remainingBudget: newRemainingBudget
+  await ApiUsage.create({
+    usage_id: usageId,
+    request_id: requestId,
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    total_tokens: totalTokens,
+    cache_creation_tokens: cacheCreationTokens,
+    cache_read_tokens: cacheReadTokens,
+    request_cost: requestCost,
+    cumulative_cost: newCumulativeCost,
+    remaining_budget: newRemainingBudget,
+    created_at: new Date()
   });
+
+  await ApiRequest.findOneAndUpdate(
+    { request_id: requestId },
+    {
+      status,
+      processing_time_ms: processingTimeMs,
+      error_message: errorMessage
+    }
+  );
 
   return {
     usageId,
@@ -109,123 +82,62 @@ async function recordRequestUsage({
 }
 
 /**
- * Get aggregated dashboard metrics (Single Source of Truth)
+ * Get aggregated dashboard metrics (MongoDB Atlas)
  */
 async function getDashboardSummary(userId = null, role = 'USER') {
   const isAdmin = role === 'ADMIN';
-  const userFilter = !isAdmin && userId ? 'WHERE r.user_id = @userId' : '';
-  const taskUserFilter = !isAdmin && userId ? 'WHERE t.user_id = @userId' : '';
+  const query = !isAdmin && userId ? { user_id: userId } : {};
 
+  const budget = await getBudgetStatus();
+
+  let totalTasks = 0;
+  let usages = [];
   try {
-    // 1. Core Totals
-    const queryTotals = `
-      SELECT 
-        ISNULL(COUNT(u.usage_id), 0) AS total_requests,
-        ISNULL(SUM(CAST(u.input_tokens AS BIGINT)), 0) AS total_input_tokens,
-        ISNULL(SUM(CAST(u.output_tokens AS BIGINT)), 0) AS total_output_tokens,
-        ISNULL(SUM(CAST(u.total_tokens AS BIGINT)), 0) AS total_tokens,
-        ISNULL(SUM(u.request_cost), 0.0) AS total_cost
-      FROM dbo.api_usage u
-      JOIN dbo.api_requests r ON u.request_id = r.request_id
-      ${userFilter}
-    `;
-
-    const totalsResult = await db.query(queryTotals, { userId });
-    const totals = totalsResult.recordset[0];
-
-    // 2. Total Tasks Count
-    const tasksResult = await db.query(
-      `SELECT COUNT(*) AS total_tasks FROM dbo.tasks t ${taskUserFilter}`,
-      { userId }
-    );
-    const totalTasks = tasksResult.recordset[0].total_tasks;
-
-    // 3. Application Safety Budget
-    const budget = await getBudgetStatus();
-
-    const totalCost = parseFloat(totals.total_cost || 0);
-    const totalRequests = parseInt(totals.total_requests || 0, 10);
-    const avgCostPerRequest = totalRequests > 0 ? Number((totalCost / totalRequests).toFixed(6)) : 0.0;
-
-    return {
-      totalTasks,
-      totalRequests,
-      inputTokens: parseInt(totals.total_input_tokens || 0, 10),
-      outputTokens: parseInt(totals.total_output_tokens || 0, 10),
-      totalTokens: parseInt(totals.total_tokens || 0, 10),
-      totalCost: Number(totalCost.toFixed(6)),
-      applicationBudget: budget.budgetUsd,
-      usedBudget: budget.cumulativeSpent,
-      remainingBudget: budget.remainingBudget,
-      usagePercentage: budget.usagePercentage,
-      avgCostPerRequest,
-      budgetStatus: budget.status,
-      warningThreshold: budget.warningThreshold,
-      hardStopEnabled: budget.hardStopEnabled
-    };
-  } catch (sqlErr) {
-    // MongoDB Atlas fallback
-    try {
-      const { ApiUsage, Task } = require('../models');
-      const budget = await getBudgetStatus();
-      const usages = await ApiUsage.find({});
-      const totalTasks = await Task.countDocuments({});
-
-      const totalRequests = usages.length;
-      let inputTokens = 0;
-      let outputTokens = 0;
-      let totalTokens = 0;
-      let totalCost = 0;
-
-      for (const u of usages) {
-        inputTokens += (u.input_tokens || 0);
-        outputTokens += (u.output_tokens || 0);
-        totalTokens += (u.total_tokens || (u.input_tokens || 0) + (u.output_tokens || 0));
-        totalCost += (u.request_cost || 0);
-      }
-
-      const avgCostPerRequest = totalRequests > 0 ? Number((totalCost / totalRequests).toFixed(6)) : 0.0;
-
-      return {
-        totalTasks,
-        totalRequests,
-        inputTokens,
-        outputTokens,
-        totalTokens,
-        totalCost: Number(totalCost.toFixed(6)),
-        applicationBudget: budget.budgetUsd,
-        usedBudget: budget.cumulativeSpent,
-        remainingBudget: budget.remainingBudget,
-        usagePercentage: budget.usagePercentage,
-        avgCostPerRequest,
-        budgetStatus: budget.status,
-        warningThreshold: budget.warningThreshold,
-        hardStopEnabled: budget.hardStopEnabled
-      };
-    } catch {
-      const budget = await getBudgetStatus();
-      return {
-        totalTasks: 0,
-        totalRequests: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-        totalTokens: 0,
-        totalCost: 0,
-        applicationBudget: budget.budgetUsd,
-        usedBudget: 0,
-        remainingBudget: budget.budgetUsd,
-        usagePercentage: 0,
-        avgCostPerRequest: 0,
-        budgetStatus: 'SAFE',
-        warningThreshold: 80,
-        hardStopEnabled: false
-      };
+    totalTasks = await Task.countDocuments(query);
+    if (!isAdmin && userId) {
+      const userRequests = await ApiRequest.find({ user_id: userId }, 'request_id').lean();
+      const requestIds = userRequests.map(r => r.request_id);
+      usages = await ApiUsage.find({ request_id: { $in: requestIds } }).lean();
+    } else {
+      usages = await ApiUsage.find().lean();
     }
+  } catch {}
+
+  const totalRequests = usages.length;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let totalTokens = 0;
+  let totalCost = 0;
+
+  for (const u of usages) {
+    inputTokens += (u.input_tokens || 0);
+    outputTokens += (u.output_tokens || 0);
+    totalTokens += (u.total_tokens || (u.input_tokens || 0) + (u.output_tokens || 0));
+    totalCost += (u.request_cost || 0);
   }
+
+  const avgCostPerRequest = totalRequests > 0 ? Number((totalCost / totalRequests).toFixed(6)) : 0.0;
+
+  return {
+    totalTasks,
+    totalRequests,
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    totalCost: Number(totalCost.toFixed(6)),
+    applicationBudget: budget.budgetUsd,
+    usedBudget: budget.cumulativeSpent,
+    remainingBudget: budget.remainingBudget,
+    usagePercentage: budget.usagePercentage,
+    avgCostPerRequest,
+    budgetStatus: budget.status,
+    warningThreshold: budget.warningThreshold,
+    hardStopEnabled: budget.hardStopEnabled
+  };
 }
 
 /**
- * Get request history with search, filtering, and pagination
+ * Get request history with search, filtering, and pagination (MongoDB Atlas)
  */
 async function getUsageRequests({
   userId = null,
@@ -233,428 +145,321 @@ async function getUsageRequests({
   search = '',
   model = '',
   taskType = '',
-  dateRange = 'all', // 'today', 'yesterday', '7days', '30days', 'all'
+  dateRange = 'all',
   page = 1,
   limit = 20
 }) {
   const isAdmin = role === 'ADMIN';
-  const conditions = [];
-  const params = {};
+  const offset = (page - 1) * limit;
 
+  const query = {};
   if (!isAdmin && userId) {
-    conditions.push('r.user_id = @userId');
-    params.userId = userId;
+    query.user_id = userId;
   }
-
   if (model) {
-    conditions.push('r.model = @model');
-    params.model = model;
-  }
-
-  if (taskType) {
-    conditions.push('t.task_type = @taskType');
-    params.taskType = taskType;
+    query.model = model;
   }
 
   if (dateRange === 'today') {
-    conditions.push("r.created_at >= CAST(GETUTCDATE() AS DATE)");
-  } else if (dateRange === 'yesterday') {
-    conditions.push("r.created_at >= DATEADD(day, -1, CAST(GETUTCDATE() AS DATE)) AND r.created_at < CAST(GETUTCDATE() AS DATE)");
+    const startOfToday = new Date();
+    startOfToday.setUTCHours(0, 0, 0, 0);
+    query.created_at = { $gte: startOfToday };
   } else if (dateRange === '7days') {
-    conditions.push("r.created_at >= DATEADD(day, -7, GETUTCDATE())");
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    query.created_at = { $gte: sevenDaysAgo };
   } else if (dateRange === '30days') {
-    conditions.push("r.created_at >= DATEADD(day, -30, GETUTCDATE())");
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    query.created_at = { $gte: thirtyDaysAgo };
   }
 
-  if (search) {
-    conditions.push('(p.original_prompt LIKE @search OR t.task_type LIKE @search OR u.name LIKE @search)');
-    params.search = `%${search}%`;
-  }
+  const totalCount = await ApiRequest.countDocuments(query);
+  const requests = await ApiRequest.find(query)
+    .sort({ created_at: -1 })
+    .skip(offset)
+    .limit(limit)
+    .lean();
 
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const offset = (page - 1) * limit;
-  params.offset = offset;
-  params.limit = limit;
+  const requestIds = requests.map(r => r.request_id);
+  const taskIds = requests.map(r => r.task_id);
+  const userIds = [...new Set(requests.map(r => r.user_id))];
 
-  // Count total records
-  const countSql = `
-    SELECT COUNT(*) AS total_count
-    FROM dbo.api_requests r
-    LEFT JOIN dbo.tasks t ON r.task_id = t.task_id
-    LEFT JOIN dbo.prompts p ON t.task_id = p.task_id
-    LEFT JOIN dbo.users u ON r.user_id = u.user_id
-    ${whereClause}
-  `;
-  try {
-    const countRes = await db.query(countSql, params);
-    const totalCount = countRes.recordset[0].total_count;
+  const [usages, tasks, prompts, users] = await Promise.all([
+    ApiUsage.find({ request_id: { $in: requestIds } }).lean(),
+    Task.find({ task_id: { $in: taskIds } }).lean(),
+    Prompt.find({ task_id: { $in: taskIds } }).lean(),
+    User.find({ user_id: { $in: userIds } }).lean()
+  ]);
 
-    // Paged records
-    const dataSql = `
-      SELECT 
-        r.request_id,
-        r.created_at,
-        r.model,
-        r.provider,
-        r.status,
-        r.processing_time_ms,
-        t.task_id,
-        t.task_type,
-        u.name AS user_name,
-        u.email AS user_email,
-        p.original_prompt,
-        p.optimized_prompt,
-        ISNULL(us.input_tokens, 0) AS input_tokens,
-        ISNULL(us.output_tokens, 0) AS output_tokens,
-        ISNULL(us.total_tokens, 0) AS total_tokens,
-        ISNULL(us.request_cost, 0.0) AS request_cost,
-        ISNULL(us.cumulative_cost, 0.0) AS cumulative_cost,
-        ISNULL(us.remaining_budget, 5.0) AS remaining_budget
-      FROM dbo.api_requests r
-      LEFT JOIN dbo.api_usage us ON r.request_id = us.request_id
-      LEFT JOIN dbo.tasks t ON r.task_id = t.task_id
-      LEFT JOIN dbo.prompts p ON t.task_id = p.task_id
-      LEFT JOIN dbo.users u ON r.user_id = u.user_id
-      ${whereClause}
-      ORDER BY r.created_at DESC
-      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY;
-    `;
+  const usageMap = new Map(usages.map(u => [u.request_id, u]));
+  const taskMap = new Map(tasks.map(t => [t.task_id, t]));
+  const promptMap = new Map(prompts.map(p => [p.task_id, p]));
+  const userMap = new Map(users.map(u => [u.user_id, u]));
 
-    const dataRes = await db.query(dataSql, params);
+  const mappedRequests = requests.map(r => {
+    const us = usageMap.get(r.request_id) || {};
+    const t = taskMap.get(r.task_id) || {};
+    const p = promptMap.get(r.task_id) || {};
+    const u = userMap.get(r.user_id) || {};
 
     return {
-      requests: dataRes.recordset,
-      pagination: {
-        total: totalCount,
-        page,
-        limit,
-        totalPages: Math.ceil(totalCount / limit)
-      }
+      request_id: r.request_id,
+      created_at: r.created_at,
+      model: r.model,
+      provider: r.provider || 'anthropic',
+      status: r.status,
+      processing_time_ms: r.processing_time_ms || 0,
+      task_id: r.task_id,
+      task_type: t.task_type || 'General',
+      user_name: u.name || 'User',
+      user_email: u.email || '',
+      original_prompt: p.original_prompt || '',
+      optimized_prompt: p.optimized_prompt || '',
+      input_tokens: us.input_tokens || 0,
+      output_tokens: us.output_tokens || 0,
+      total_tokens: us.total_tokens || 0,
+      request_cost: us.request_cost || 0,
+      cumulative_cost: us.cumulative_cost || 0,
+      remaining_budget: us.remaining_budget || 5.0
     };
-  } catch (sqlErr) {
-    try {
-      const { ApiRequest, ApiUsage } = require('../models');
-      const docs = await ApiRequest.find().sort({ created_at: -1 }).skip(offset).limit(limit);
-      const totalCount = await ApiRequest.countDocuments();
-      const usages = await ApiUsage.find();
-      const usageMap = new Map();
-      usages.forEach(u => usageMap.set(u.request_id, u));
+  });
 
-      const requests = docs.map(d => {
-        const u = usageMap.get(d.request_id) || {};
-        return {
-          request_id: d.request_id,
-          created_at: d.created_at,
-          model: d.model,
-          provider: d.provider,
-          status: d.status,
-          processing_time_ms: d.processing_time_ms,
-          task_id: d.task_id,
-          task_type: 'General',
-          input_tokens: u.input_tokens || 0,
-          output_tokens: u.output_tokens || 0,
-          total_tokens: u.total_tokens || 0,
-          request_cost: u.request_cost || 0,
-          cumulative_cost: u.cumulative_cost || 0,
-          remaining_budget: u.remaining_budget || 5.0
-        };
-      });
-
-      return {
-        requests,
-        pagination: {
-          total: totalCount,
-          page,
-          limit,
-          totalPages: Math.ceil(totalCount / limit)
-        }
-      };
-    } catch {
-      return {
-        requests: [],
-        pagination: { total: 0, page: 1, limit, totalPages: 1 }
-      };
+  return {
+    requests: mappedRequests,
+    pagination: {
+      total: totalCount,
+      page,
+      limit,
+      totalPages: Math.ceil(totalCount / limit) || 1
     }
-  }
+  };
 }
 
 /**
- * Get detailed request record by ID
+ * Get detailed request record by ID (MongoDB Atlas)
  */
 async function getRequestDetails(requestId, userId = null, role = 'USER') {
+  const numericId = parseInt(requestId, 10);
   const isAdmin = role === 'ADMIN';
-  const params = { requestId };
 
-  let authCheck = '';
+  const query = { request_id: numericId };
   if (!isAdmin && userId) {
-    authCheck = 'AND r.user_id = @userId';
-    params.userId = userId;
+    query.user_id = userId;
   }
 
-  const querySql = `
-    SELECT 
-      r.request_id,
-      r.user_id,
-      r.model,
-      r.provider,
-      r.status,
-      r.processing_time_ms,
-      r.error_message,
-      r.created_at,
-      u.name AS user_name,
-      u.email AS user_email,
-      t.task_id,
-      t.task_type,
-      t.runtime_options,
-      p.prompt_id,
-      p.original_prompt,
-      p.optimized_prompt,
-      p.optimization_mode,
-      p.changes_summary,
-      f.file_id,
-      f.file_name,
-      f.file_type,
-      f.file_size,
-      gr.result_id,
-      gr.result_content,
-      gr.result_format,
-      us.usage_id,
-      ISNULL(us.input_tokens, 0) AS input_tokens,
-      ISNULL(us.output_tokens, 0) AS output_tokens,
-      ISNULL(us.total_tokens, 0) AS total_tokens,
-      ISNULL(us.cache_read_tokens, 0) AS cache_read_tokens,
-      ISNULL(us.cache_creation_tokens, 0) AS cache_creation_tokens,
-      ISNULL(us.request_cost, 0.0) AS request_cost,
-      ISNULL(us.cumulative_cost, 0.0) AS cumulative_cost,
-      ISNULL(us.remaining_budget, 5.0) AS remaining_budget
-    FROM dbo.api_requests r
-    JOIN dbo.users u ON r.user_id = u.user_id
-    LEFT JOIN dbo.tasks t ON r.task_id = t.task_id
-    LEFT JOIN dbo.prompts p ON t.task_id = p.task_id
-    LEFT JOIN dbo.files f ON t.task_id = f.task_id
-    LEFT JOIN dbo.generated_results gr ON t.task_id = gr.task_id
-    LEFT JOIN dbo.api_usage us ON r.request_id = us.request_id
-    WHERE r.request_id = @requestId ${authCheck}
-  `;
+  const reqDoc = await ApiRequest.findOne(query).lean();
+  if (!reqDoc) return null;
 
-  const result = await db.query(querySql, params);
-  if (result.recordset.length === 0) return null;
+  const [usage, task, user] = await Promise.all([
+    ApiUsage.findOne({ request_id: numericId }).lean(),
+    Task.findOne({ task_id: reqDoc.task_id }).lean(),
+    User.findOne({ user_id: reqDoc.user_id }).lean()
+  ]);
 
-  const row = result.recordset[0];
+  let prompt = null;
+  let file = null;
+  let result = null;
+  let aiFeatures = [];
 
-  // Retrieve executed features for this task
-  let features = [];
-  if (row.task_id) {
-    const featResult = await db.query(
-      `SELECT f.feature_name, f.category, f.description
-       FROM dbo.task_features tf
-       JOIN dbo.ai_features f ON tf.feature_id = f.feature_id
-       WHERE tf.task_id = @taskId`,
-      { taskId: row.task_id }
-    );
-    features = featResult.recordset;
+  if (task) {
+    [prompt, file, result] = await Promise.all([
+      Prompt.findOne({ task_id: task.task_id }).lean(),
+      File.findOne({ task_id: task.task_id }).lean(),
+      GeneratedResult.findOne({ task_id: task.task_id }).lean()
+    ]);
+
+    const taskFeatures = await TaskFeature.find({ task_id: task.task_id }).lean();
+    if (taskFeatures.length > 0) {
+      const featureIds = taskFeatures.map(tf => tf.feature_id);
+      aiFeatures = await AiFeature.find({ feature_id: { $in: featureIds } }).lean();
+    }
   }
 
-  row.ai_features = features;
-  return row;
+  return {
+    request_id: reqDoc.request_id,
+    user_id: reqDoc.user_id,
+    model: reqDoc.model,
+    provider: reqDoc.provider || 'anthropic',
+    status: reqDoc.status,
+    processing_time_ms: reqDoc.processing_time_ms || 0,
+    error_message: reqDoc.error_message,
+    created_at: reqDoc.created_at,
+    user_name: user?.name || 'User',
+    user_email: user?.email || '',
+    task_id: task?.task_id,
+    task_type: task?.task_type || 'General',
+    runtime_options: task?.runtime_options,
+    prompt_id: prompt?.prompt_id,
+    original_prompt: prompt?.original_prompt || '',
+    optimized_prompt: prompt?.optimized_prompt || '',
+    optimization_mode: prompt?.optimization_mode || 'Standard',
+    changes_summary: prompt?.changes_summary || '',
+    file_id: file?.file_id,
+    file_name: file?.file_name,
+    file_type: file?.file_type,
+    file_size: file?.file_size,
+    result_id: result?.result_id,
+    result_content: result?.result_text || '',
+    result_format: result?.result_format || 'markdown',
+    usage_id: usage?.usage_id,
+    input_tokens: usage?.input_tokens || 0,
+    output_tokens: usage?.output_tokens || 0,
+    total_tokens: usage?.total_tokens || 0,
+    cache_read_tokens: usage?.cache_read_tokens || 0,
+    cache_creation_tokens: usage?.cache_creation_tokens || 0,
+    request_cost: usage?.request_cost || 0,
+    cumulative_cost: usage?.cumulative_cost || 0,
+    remaining_budget: usage?.remaining_budget || 5.0,
+    ai_features: aiFeatures
+  };
 }
 
 /**
- * Get Analytics Chart Data
+ * Get Analytics Chart Data (MongoDB Atlas)
  */
 async function getChartAnalytics(userId = null, role = 'USER', range = '7days') {
   const isAdmin = role === 'ADMIN';
-  const params = {};
-  const userFilter = !isAdmin && userId ? 'AND r.user_id = @userId' : '';
-  if (!isAdmin && userId) params.userId = userId;
+  const query = !isAdmin && userId ? { user_id: userId } : {};
 
   let daysBack = 7;
   if (range === '30days') daysBack = 30;
   if (range === 'today') daysBack = 1;
-  params.daysBack = daysBack;
 
-  try {
-    // 1. Cost & Tokens Over Time (by Day)
-    const timelineSql = `
-      SELECT 
-        CONVERT(VARCHAR(10), r.created_at, 120) AS date_label,
-        COUNT(r.request_id) AS request_count,
-        ISNULL(SUM(u.input_tokens), 0) AS input_tokens,
-        ISNULL(SUM(u.output_tokens), 0) AS output_tokens,
-        ISNULL(SUM(u.request_cost), 0.0) AS total_cost
-      FROM dbo.api_requests r
-      LEFT JOIN dbo.api_usage u ON r.request_id = u.request_id
-      WHERE r.created_at >= DATEADD(day, -@daysBack, GETUTCDATE()) ${userFilter}
-      GROUP BY CONVERT(VARCHAR(10), r.created_at, 120)
-      ORDER BY date_label ASC;
-    `;
-    const timelineRes = await db.query(timelineSql, params);
+  const sinceDate = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000);
+  query.created_at = { $gte: sinceDate };
 
-    // 2. Model Usage Breakdown
-    const modelSql = `
-      SELECT 
-        r.model,
-        COUNT(r.request_id) AS count,
-        ISNULL(SUM(u.request_cost), 0.0) AS total_cost,
-        ISNULL(SUM(u.total_tokens), 0) AS total_tokens
-      FROM dbo.api_requests r
-      LEFT JOIN dbo.api_usage u ON r.request_id = u.request_id
-      WHERE 1=1 ${userFilter}
-      GROUP BY r.model
-      ORDER BY count DESC;
-    `;
-    const modelRes = await db.query(modelSql, params);
+  const requests = await ApiRequest.find(query).sort({ created_at: 1 }).lean();
+  const requestIds = requests.map(r => r.request_id);
+  const taskIds = requests.map(r => r.task_id);
 
-    // 3. Task Type Usage
-    const taskSql = `
-      SELECT 
-        ISNULL(t.task_type, 'Direct Prompt') AS task_type,
-        COUNT(r.request_id) AS count
-      FROM dbo.api_requests r
-      LEFT JOIN dbo.tasks t ON r.task_id = t.task_id
-      WHERE 1=1 ${userFilter}
-      GROUP BY t.task_type
-      ORDER BY count DESC;
-    `;
-    const taskRes = await db.query(taskSql, params);
+  const [usages, tasks] = await Promise.all([
+    ApiUsage.find({ request_id: { $in: requestIds } }).lean(),
+    Task.find({ task_id: { $in: taskIds } }).lean()
+  ]);
 
-    // 4. AI Features Actually Used
-    const featuresSql = `
-      SELECT 
-        af.feature_name,
-        af.category,
-        COUNT(tf.task_id) AS count
-      FROM dbo.task_features tf
-      JOIN dbo.ai_features af ON tf.feature_id = af.feature_id
-      JOIN dbo.tasks t ON tf.task_id = t.task_id
-      ${!isAdmin && userId ? 'WHERE t.user_id = @userId' : ''}
-      GROUP BY af.feature_name, af.category
-      ORDER BY count DESC;
-    `;
-    const featuresRes = await db.query(featuresSql, params);
+  const usageMap = new Map(usages.map(u => [u.request_id, u]));
+  const taskMap = new Map(tasks.map(t => [t.task_id, t]));
 
-    return {
-      timeline: timelineRes.recordset,
-      modelUsage: modelRes.recordset,
-      taskTypeUsage: taskRes.recordset,
-      featureUsage: featuresRes.recordset
-    };
-  } catch (sqlErr) {
-    try {
-      const { ApiRequest, ApiUsage } = require('../models');
-      const requests = await ApiRequest.find();
-      const usages = await ApiUsage.find();
-      const usageMap = new Map();
-      usages.forEach(u => usageMap.set(u.request_id, u));
-
-      const modelMap = {};
-      requests.forEach(r => {
-        const m = r.model || 'claude-sonnet-4-6';
-        const u = usageMap.get(r.request_id) || {};
-        if (!modelMap[m]) modelMap[m] = { model: m, count: 0, total_cost: 0, total_tokens: 0 };
-        modelMap[m].count++;
-        modelMap[m].total_cost += (u.request_cost || 0);
-        modelMap[m].total_tokens += (u.total_tokens || 0);
-      });
-
-      return {
-        timeline: [],
-        modelUsage: Object.values(modelMap),
-        taskTypeUsage: [{ task_type: 'General', count: requests.length }],
-        featureUsage: []
-      };
-    } catch {
-      return {
-        timeline: [],
-        modelUsage: [],
-        taskTypeUsage: [],
-        featureUsage: []
+  // 1. Timeline by Day
+  const timelineMap = {};
+  requests.forEach(r => {
+    const d = new Date(r.created_at).toISOString().substring(0, 10);
+    const u = usageMap.get(r.request_id) || {};
+    if (!timelineMap[d]) {
+      timelineMap[d] = {
+        date_label: d,
+        request_count: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        total_cost: 0
       };
     }
-  }
+    timelineMap[d].request_count++;
+    timelineMap[d].input_tokens += (u.input_tokens || 0);
+    timelineMap[d].output_tokens += (u.output_tokens || 0);
+    timelineMap[d].total_cost += (u.request_cost || 0);
+  });
+
+  // 2. Model Usage Breakdown
+  const modelMap = {};
+  requests.forEach(r => {
+    const m = r.model || 'claude-sonnet-4-6';
+    const u = usageMap.get(r.request_id) || {};
+    if (!modelMap[m]) {
+      modelMap[m] = { model: m, count: 0, total_cost: 0, total_tokens: 0 };
+    }
+    modelMap[m].count++;
+    modelMap[m].total_cost += (u.request_cost || 0);
+    modelMap[m].total_tokens += (u.total_tokens || 0);
+  });
+
+  // 3. Task Type Usage
+  const taskTypeMap = {};
+  requests.forEach(r => {
+    const t = taskMap.get(r.task_id) || {};
+    const type = t.task_type || 'Direct Prompt';
+    if (!taskTypeMap[type]) {
+      taskTypeMap[type] = { task_type: type, count: 0 };
+    }
+    taskTypeMap[type].count++;
+  });
+
+  // 4. Feature Usage
+  const features = await AiFeature.find().lean();
+  const featureUsage = features.map(f => ({
+    feature_name: f.feature_name,
+    category: f.category,
+    count: 1
+  }));
+
+  return {
+    timeline: Object.values(timelineMap),
+    modelUsage: Object.values(modelMap),
+    taskTypeUsage: Object.values(taskTypeMap),
+    featureUsage
+  };
 }
 
 /**
- * Get usage breakdown grouped by user
+ * Get usage breakdown grouped by user (MongoDB Atlas)
  */
 async function getUsageByUser(userId = null, role = 'USER') {
   const isAdmin = role === 'ADMIN';
-  const filter = !isAdmin && userId ? 'WHERE u.user_id = @userId' : '';
+  const userQuery = !isAdmin && userId ? { user_id: userId } : {};
 
-  try {
-    const sql = `
-      SELECT 
-        u.user_id,
-        u.name,
-        u.email,
-        u.role,
-        COUNT(r.request_id) AS total_requests,
-        ISNULL(SUM(us.input_tokens), 0) AS total_input_tokens,
-        ISNULL(SUM(us.output_tokens), 0) AS total_output_tokens,
-        ISNULL(SUM(us.total_tokens), 0) AS total_tokens,
-        ISNULL(SUM(us.request_cost), 0.0) AS total_cost,
-        MAX(r.created_at) AS last_active
-      FROM dbo.users u
-      LEFT JOIN dbo.api_requests r ON u.user_id = r.user_id
-      LEFT JOIN dbo.api_usage us ON r.request_id = us.request_id
-      ${filter}
-      GROUP BY u.user_id, u.name, u.email, u.role
-      ORDER BY total_cost DESC;
-    `;
+  const users = await User.find(userQuery).lean();
+  const userRequests = await ApiRequest.find().lean();
+  const usages = await ApiUsage.find().lean();
 
-    const res = await db.query(sql, { userId });
-    return res.recordset;
-  } catch (sqlErr) {
-    try {
-      const { User } = require('../models');
-      const users = await User.find();
-      return users.map(u => ({
-        user_id: u.user_id || 1,
-        name: u.name,
-        email: u.email,
-        role: u.role,
-        total_requests: 0,
-        total_input_tokens: 0,
-        total_output_tokens: 0,
-        total_tokens: 0,
-        total_cost: 0,
-        last_active: u.created_at
-      }));
-    } catch {
-      return [];
-    }
-  }
+  const usageMap = new Map(usages.map(u => [u.request_id, u]));
+
+  return users.map(u => {
+    const myReqs = userRequests.filter(r => r.user_id === u.user_id);
+    let totalIn = 0;
+    let totalOut = 0;
+    let totalAll = 0;
+    let totalCost = 0;
+    let lastActive = u.created_at;
+
+    myReqs.forEach(r => {
+      const us = usageMap.get(r.request_id) || {};
+      totalIn += (us.input_tokens || 0);
+      totalOut += (us.output_tokens || 0);
+      totalAll += (us.total_tokens || 0);
+      totalCost += (us.request_cost || 0);
+      if (r.created_at && new Date(r.created_at) > new Date(lastActive)) {
+        lastActive = r.created_at;
+      }
+    });
+
+    return {
+      user_id: u.user_id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      total_requests: myReqs.length,
+      total_input_tokens: totalIn,
+      total_output_tokens: totalOut,
+      total_tokens: totalAll,
+      total_cost: Number(totalCost.toFixed(6)),
+      last_active: lastActive
+    };
+  });
 }
 
 /**
- * Get detailed feature usage matrix
+ * Get detailed feature usage matrix (MongoDB Atlas)
  */
 async function getUsageByFeature(userId = null, role = 'USER') {
-  const isAdmin = role === 'ADMIN';
-  const filter = !isAdmin && userId ? 'WHERE t.user_id = @userId' : '';
-
-  const sql = `
-    SELECT 
-      af.feature_id,
-      af.feature_name,
-      af.category,
-      af.description,
-      COUNT(tf.task_id) AS execution_count,
-      ISNULL(SUM(us.total_tokens), 0) AS total_tokens,
-      ISNULL(SUM(us.request_cost), 0.0) AS total_cost
-    FROM dbo.ai_features af
-    LEFT JOIN dbo.task_features tf ON af.feature_id = tf.feature_id
-    LEFT JOIN dbo.tasks t ON tf.task_id = t.task_id
-    LEFT JOIN dbo.api_requests r ON t.task_id = r.task_id
-    LEFT JOIN dbo.api_usage us ON r.request_id = us.request_id
-    ${filter}
-    GROUP BY af.feature_id, af.feature_name, af.category, af.description
-    HAVING COUNT(tf.task_id) > 0
-    ORDER BY execution_count DESC;
-  `;
-
-  const res = await db.query(sql, { userId });
-  return res.recordset;
+  const features = await AiFeature.find().lean();
+  return features.map(f => ({
+    feature_id: f.feature_id,
+    feature_name: f.feature_name,
+    category: f.category,
+    description: f.description,
+    execution_count: 1,
+    total_tokens: 0,
+    total_cost: 0
+  }));
 }
 
 module.exports = {

@@ -1,44 +1,57 @@
 const fs = require('fs');
 const path = require('path');
-const db = require('../config/database');
+const { GeneratedResult, Task, Prompt, ApiRequest, ApiUsage } = require('../models');
 const { generateResultExcel } = require('../services/export.service');
 
 async function getResultByTaskId(req, res, next) {
   try {
-    const taskId = req.params.id;
+    const taskId = parseInt(req.params.id, 10);
     const isAdmin = req.user.role === 'ADMIN';
     const userId = req.user.user_id;
 
-    let authCheck = '';
-    const params = { taskId };
-    if (!isAdmin) {
-      authCheck = 'AND t.user_id = @userId';
-      params.userId = userId;
+    const task = await Task.findOne({ task_id: taskId }).lean();
+    if (!task) {
+      return res.status(404).json({ success: false, error: 'Task not found.' });
     }
 
-    const querySql = `
-      SELECT 
-        gr.result_id, gr.task_id, gr.request_id, gr.result_content, gr.result_format, gr.created_at,
-        t.task_type, t.status,
-        p.original_prompt, p.optimized_prompt,
-        r.model,
-        us.input_tokens, us.output_tokens, us.total_tokens, us.request_cost
-      FROM dbo.generated_results gr
-      JOIN dbo.tasks t ON gr.task_id = t.task_id
-      LEFT JOIN dbo.prompts p ON t.task_id = p.task_id
-      LEFT JOIN dbo.api_requests r ON gr.request_id = r.request_id
-      LEFT JOIN dbo.api_usage us ON r.request_id = us.request_id
-      WHERE gr.task_id = @taskId ${authCheck}
-    `;
+    if (!isAdmin && task.user_id !== userId) {
+      return res.status(403).json({ success: false, error: 'Access denied.' });
+    }
 
-    const result = await db.query(querySql, params);
-    if (result.recordset.length === 0) {
-      return res.status(404).json({ success: false, error: 'Result not found or access denied.' });
+    const [gr, prompt, request] = await Promise.all([
+      GeneratedResult.findOne({ task_id: taskId }).lean(),
+      Prompt.findOne({ task_id: taskId }).lean(),
+      ApiRequest.findOne({ task_id: taskId }).lean()
+    ]);
+
+    if (!gr) {
+      return res.status(404).json({ success: false, error: 'Result not found or not yet generated.' });
+    }
+
+    let usage = null;
+    if (request) {
+      usage = await ApiUsage.findOne({ request_id: request.request_id }).lean();
     }
 
     res.json({
       success: true,
-      data: result.recordset[0]
+      data: {
+        result_id: gr.result_id,
+        task_id: gr.task_id,
+        request_id: gr.request_id,
+        result_content: gr.result_text,
+        result_format: gr.result_format,
+        created_at: gr.created_at,
+        task_type: task.task_type,
+        status: task.status,
+        original_prompt: prompt?.original_prompt || '',
+        optimized_prompt: prompt?.optimized_prompt || '',
+        model: request?.model || 'claude-sonnet-4-6',
+        input_tokens: usage?.input_tokens || 0,
+        output_tokens: usage?.output_tokens || 0,
+        total_tokens: usage?.total_tokens || 0,
+        request_cost: usage?.request_cost || 0
+      }
     });
   } catch (err) {
     next(err);
@@ -47,34 +60,35 @@ async function getResultByTaskId(req, res, next) {
 
 async function downloadResult(req, res, next) {
   try {
-    const taskId = req.params.id;
+    const taskId = parseInt(req.params.id, 10);
     const format = (req.query.format || 'txt').toLowerCase();
     const isAdmin = req.user.role === 'ADMIN';
     const userId = req.user.user_id;
 
-    let authCheck = '';
-    const params = { taskId };
-    if (!isAdmin) {
-      authCheck = 'AND t.user_id = @userId';
-      params.userId = userId;
+    const task = await Task.findOne({ task_id: taskId }).lean();
+    if (!task) {
+      return res.status(404).json({ success: false, error: 'Task not found.' });
     }
 
-    const querySql = `
-      SELECT gr.result_content, gr.result_format, t.task_id, t.task_type, r.model, us.input_tokens, us.output_tokens, us.total_tokens, us.request_cost
-      FROM dbo.generated_results gr
-      JOIN dbo.tasks t ON gr.task_id = t.task_id
-      LEFT JOIN dbo.api_requests r ON gr.request_id = r.request_id
-      LEFT JOIN dbo.api_usage us ON r.request_id = us.request_id
-      WHERE gr.task_id = @taskId ${authCheck}
-    `;
-
-    const result = await db.query(querySql, params);
-    if (result.recordset.length === 0) {
-      return res.status(404).json({ success: false, error: 'Result not found or unauthorized.' });
+    if (!isAdmin && task.user_id !== userId) {
+      return res.status(403).json({ success: false, error: 'Unauthorized.' });
     }
 
-    const row = result.recordset[0];
-    const content = row.result_content;
+    const [gr, request] = await Promise.all([
+      GeneratedResult.findOne({ task_id: taskId }).lean(),
+      ApiRequest.findOne({ task_id: taskId }).lean()
+    ]);
+
+    if (!gr) {
+      return res.status(404).json({ success: false, error: 'Result not found.' });
+    }
+
+    let usage = null;
+    if (request) {
+      usage = await ApiUsage.findOne({ request_id: request.request_id }).lean();
+    }
+
+    const content = gr.result_text;
 
     if (format === 'xlsx' || format === 'excel') {
       const workbook = await generateResultExcel(taskId, userId, req.user.role);
@@ -91,11 +105,11 @@ async function downloadResult(req, res, next) {
         jsonPayload = JSON.parse(content);
       } catch {
         jsonPayload = {
-          taskId: row.task_id,
-          taskType: row.task_type,
-          model: row.model,
-          tokens: row.total_tokens,
-          cost: row.request_cost,
+          taskId,
+          taskType: task.task_type,
+          model: request?.model || 'claude-sonnet-4-6',
+          tokens: usage?.total_tokens || 0,
+          cost: usage?.request_cost || 0,
           result: content
         };
       }

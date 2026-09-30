@@ -1,12 +1,20 @@
 const fs = require('fs');
 const path = require('path');
-const db = require('../config/database');
+const {
+  Task,
+  File,
+  Prompt,
+  ApiRequest,
+  GeneratedResult,
+  AiFeature,
+  TaskFeature,
+  getNextSequence
+} = require('../models');
 const { getAnthropicClient, isApiKeyConfigured, DEFAULT_MODEL } = require('../config/ai');
 const { extractUsageTokens } = require('./token.service');
 const { checkBudgetSafety } = require('./budget.service');
 const { recordRequestUsage } = require('./usage.service');
 const { estimateRequestCost } = require('./cost.service');
-const mongoService = require('./mongo.service');
 const logger = require('../utils/logger');
 
 // Predefined AI Toolkit Tasks with category and mapped AI feature
@@ -40,8 +48,8 @@ const TOOLKIT_TASKS = {
   'code-review': { category: 'Developer AI', feature: 'Code Review', systemPrompt: 'You are a principal engineer conducting a code review. Audit for security vulnerabilities, bugs, performance, and best practices.' },
   'bug-analysis': { category: 'Developer AI', feature: 'Bug/Error Analysis', systemPrompt: 'You are a debugging expert. Analyze the error trace, identify root cause, and provide the fix.' },
   'code-optimization': { category: 'Developer AI', feature: 'Code Optimization', systemPrompt: 'You are a performance optimization specialist. Refactor this code for optimal time and space complexity.' },
-  'sql-generation': { category: 'Developer AI', feature: 'SQL Generation', systemPrompt: 'You are a database architect. Write idiomatic, efficient SQL Server queries and schema definitions.' },
-  'sql-explanation': { category: 'Developer AI', feature: 'SQL Explanation', systemPrompt: 'You are a database performance tuner. Explain the SQL execution flow, joins, and indexing recommendations.' },
+  'sql-generation': { category: 'Developer AI', feature: 'Query & Schema Generation', systemPrompt: 'You are a database architect. Write idiomatic, efficient database queries, MongoDB aggregation pipelines, and schema definitions.' },
+  'sql-explanation': { category: 'Developer AI', feature: 'Query & Schema Explanation', systemPrompt: 'You are a database performance tuner. Explain query execution flow, indexes, and optimization recommendations.' },
   'doc-generation': { category: 'Developer AI', feature: 'Documentation Generation', systemPrompt: 'You are a technical documentation specialist. Generate clear markdown documentation, API specs, and docstrings.' },
 
   // Professional AI
@@ -140,52 +148,52 @@ ${fileText}
     throw err;
   }
 
-  // 6. Create Task record in DB
-  const taskRes = await db.query(
-    `INSERT INTO dbo.tasks (user_id, task_type, status, runtime_options, created_at)
-     VALUES (@userId, @taskType, 'PROCESSING', @runtimeOptions, SYSUTCDATETIME());
-     SELECT SCOPE_IDENTITY() AS task_id;`,
-    {
-      userId,
-      taskType,
-      runtimeOptions: JSON.stringify({
-        model,
-        maxOutputTokens,
-        outputFormat,
-        duplicateRemoval,
-        budgetProtection,
-        optimizationMode
-      })
-    }
-  );
-  const taskId = taskRes.recordset[0].task_id;
+  // 6. Create Task record in MongoDB Atlas
+  const taskId = await getNextSequence('taskId');
+  await Task.create({
+    task_id: taskId,
+    user_id: userId,
+    task_type: taskType,
+    status: 'PROCESSING',
+    runtime_options: JSON.stringify({
+      model,
+      maxOutputTokens,
+      outputFormat,
+      duplicateRemoval,
+      budgetProtection,
+      optimizationMode
+    }),
+    created_at: new Date()
+  });
 
   // Link file to task if provided
   if (fileId) {
-    await db.query('UPDATE dbo.files SET task_id = @taskId WHERE file_id = @fileId', { taskId, fileId });
+    await File.findOneAndUpdate({ file_id: fileId }, { task_id: taskId });
   }
 
-  // Record Prompt record in DB
-  await db.query(
-    `INSERT INTO dbo.prompts (task_id, original_prompt, optimized_prompt, optimization_mode, changes_summary, created_at)
-     VALUES (@taskId, @originalPrompt, @optimizedPrompt, @optimizationMode, @changesSummary, SYSUTCDATETIME())`,
-    {
-      taskId,
-      originalPrompt: prompt || activePrompt,
-      optimizedPrompt: optimizedPrompt || prompt || activePrompt,
-      optimizationMode,
-      changesSummary
-    }
-  );
+  // Record Prompt record in MongoDB Atlas
+  const promptId = await getNextSequence('promptId');
+  await Prompt.create({
+    prompt_id: promptId,
+    task_id: taskId,
+    original_prompt: prompt || activePrompt,
+    optimized_prompt: optimizedPrompt || prompt || activePrompt,
+    optimization_mode: optimizationMode || 'Standard',
+    changes_summary: changesSummary,
+    created_at: new Date()
+  });
 
-  // Create API Request record in DB
-  const reqRes = await db.query(
-    `INSERT INTO dbo.api_requests (task_id, user_id, model, provider, status, created_at)
-     VALUES (@taskId, @userId, @model, 'anthropic', 'PROCESSING', SYSUTCDATETIME());
-     SELECT SCOPE_IDENTITY() AS request_id;`,
-    { taskId, userId, model }
-  );
-  const requestId = reqRes.recordset[0].request_id;
+  // Create API Request record in MongoDB Atlas
+  const requestId = await getNextSequence('requestId');
+  await ApiRequest.create({
+    request_id: requestId,
+    task_id: taskId,
+    user_id: userId,
+    model,
+    provider: 'anthropic',
+    status: 'PROCESSING',
+    created_at: new Date()
+  });
 
   // Track executed AI features
   const taskDefinition = TOOLKIT_TASKS[taskType] || TOOLKIT_TASKS['custom'];
@@ -298,21 +306,8 @@ ${fileText}
     status: 'SUCCESS'
   });
 
-  // 9. Save Generated Result in DB
-  const resSave = await db.query(
-    `INSERT INTO dbo.generated_results (task_id, request_id, result_content, result_format, created_at)
-     VALUES (@taskId, @requestId, @resultContent, @resultFormat, SYSUTCDATETIME());
-     SELECT SCOPE_IDENTITY() AS result_id;`,
-    {
-      taskId,
-      requestId,
-      resultContent: responseText,
-      resultFormat: outputFormat
-    }
-  );
-  const resultId = resSave.recordset[0].result_id;
-
-  // Save result to file system (results/result_task_<taskId>.<ext>)
+  // 9. Save Generated Result in MongoDB Atlas
+  const resultId = await getNextSequence('resultId');
   let resultFilePath = null;
   try {
     const ext = outputFormat === 'json' ? 'json' : outputFormat === 'markdown' ? 'md' : 'txt';
@@ -322,63 +317,51 @@ ${fileText}
     logger.warn(`Could not write result file to disk: ${fsErr.message}`);
   }
 
-  // 10. Persist Executed AI Features into dbo.task_features
+  await GeneratedResult.create({
+    result_id: resultId,
+    task_id: taskId,
+    result_text: responseText,
+    result_format: outputFormat,
+    token_count: usageTokens.totalTokens,
+    cost_usd: usageRecord.requestCost,
+    storage_path: resultFilePath,
+    created_at: new Date()
+  });
+
+  // 10. Persist Executed AI Features
   for (const featName of executedFeatures) {
-    await db.query(
-      `INSERT INTO dbo.task_features (task_id, feature_id)
-       SELECT @taskId, feature_id FROM dbo.ai_features WHERE feature_name = @featName`,
-      { taskId, featName }
-    );
+    try {
+      const featDoc = await AiFeature.findOne({ feature_name: featName });
+      if (featDoc) {
+        const tfId = await getNextSequence('taskFeatureId');
+        await TaskFeature.create({
+          task_feature_id: tfId,
+          task_id: taskId,
+          feature_id: featDoc.feature_id
+        });
+      }
+    } catch {}
   }
 
-  // 11. Mark Task Completed
-  await db.query(
-    `UPDATE dbo.tasks SET status = 'COMPLETED', completed_at = SYSUTCDATETIME() WHERE task_id = @taskId`,
-    { taskId }
+  // 11. Mark Task Completed in MongoDB Atlas
+  await Task.findOneAndUpdate(
+    { task_id: taskId },
+    { status: 'COMPLETED', completed_at: new Date() }
   );
 
-  // 12. Audit Log
+  // 12. Mark ApiRequest Completed in MongoDB Atlas
+  await ApiRequest.findOneAndUpdate(
+    { request_id: requestId },
+    { status: 'SUCCESS', processing_time_ms: processingTimeMs }
+  );
+
+  // 13. Audit Log
   await logger.audit(userId, 'AI_PROCESS_TASK', 'TASK', taskId, {
     model,
     taskType,
     tokens: usageTokens.totalTokens,
     cost: usageRecord.requestCost
-  });
-
-  // 13. Dual-sync to MongoDB Atlas
-  mongoService.syncTask({
-    taskId,
-    userId,
-    taskType,
-    status: 'COMPLETED',
-    runtimeOptions: { model, maxOutputTokens, outputFormat, optimizationMode, duplicateRemoval, budgetProtection },
-    completedAt: new Date()
-  });
-  mongoService.syncPrompt({
-    taskId,
-    originalPrompt: prompt || activePrompt,
-    optimizedPrompt: optimizedPrompt || prompt || activePrompt,
-    optimizationMode,
-    changesSummary
-  });
-  mongoService.syncApiRequest({
-    requestId,
-    taskId,
-    userId,
-    model,
-    provider: 'anthropic',
-    status: 'SUCCESS',
-    processingTimeMs
-  });
-  mongoService.syncGeneratedResult({
-    resultId,
-    taskId,
-    resultText: responseText,
-    resultFormat: outputFormat,
-    tokenCount: usageTokens.totalTokens,
-    costUsd: usageRecord.requestCost,
-    storagePath: resultFilePath
-  });
+  }).catch(() => {});
 
   return {
     taskId,

@@ -1,4 +1,14 @@
-const db = require('../config/database');
+const {
+  Task,
+  Prompt,
+  File,
+  ApiRequest,
+  ApiUsage,
+  GeneratedResult,
+  AiFeature,
+  TaskFeature,
+  User
+} = require('../models');
 const { processAiTask } = require('../services/ai.service');
 
 async function processTask(req, res, next) {
@@ -49,41 +59,62 @@ async function getTasks(req, res, next) {
     const limit = parseInt(req.query.limit || '20', 10);
     const offset = (page - 1) * limit;
 
-    let whereClause = '';
-    const params = { offset, limit };
-    if (!isAdmin) {
-      whereClause = 'WHERE t.user_id = @userId';
-      params.userId = userId;
-    }
+    const filter = !isAdmin && userId ? { user_id: userId } : {};
 
-    const countSql = `SELECT COUNT(*) AS total FROM dbo.tasks t ${whereClause}`;
-    const countRes = await db.query(countSql, params);
-    const total = countRes.recordset[0].total;
+    const total = await Task.countDocuments(filter);
+    const tasks = await Task.find(filter)
+      .sort({ created_at: -1 })
+      .skip(offset)
+      .limit(limit)
+      .lean();
 
-    const dataSql = `
-      SELECT 
-        t.task_id, t.user_id, t.task_type, t.status, t.created_at, t.completed_at,
-        u.name AS user_name, u.email AS user_email,
-        p.original_prompt, p.optimization_mode,
-        r.model, r.processing_time_ms,
-        us.total_tokens, us.request_cost,
-        gr.result_id, gr.result_format
-      FROM dbo.tasks t
-      JOIN dbo.users u ON t.user_id = u.user_id
-      LEFT JOIN dbo.prompts p ON t.task_id = p.task_id
-      LEFT JOIN dbo.api_requests r ON t.task_id = r.task_id
-      LEFT JOIN dbo.api_usage us ON r.request_id = us.request_id
-      LEFT JOIN dbo.generated_results gr ON t.task_id = gr.task_id
-      ${whereClause}
-      ORDER BY t.created_at DESC
-      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY;
-    `;
+    const taskIds = tasks.map(t => t.task_id);
+    const [prompts, requests, results, users] = await Promise.all([
+      Prompt.find({ task_id: { $in: taskIds } }).lean(),
+      ApiRequest.find({ task_id: { $in: taskIds } }).lean(),
+      GeneratedResult.find({ task_id: { $in: taskIds } }).lean(),
+      User.find().lean()
+    ]);
 
-    const dataRes = await db.query(dataSql, params);
+    const requestIds = requests.map(r => r.request_id);
+    const usages = await ApiUsage.find({ request_id: { $in: requestIds } }).lean();
+
+    const promptMap = new Map(prompts.map(p => [p.task_id, p]));
+    const requestMap = new Map(requests.map(r => [r.task_id, r]));
+    const resultMap = new Map(results.map(res => [res.task_id, res]));
+    const userMap = new Map(users.map(u => [u.user_id, u]));
+    const usageMap = new Map(usages.map(u => [u.request_id, u]));
+
+    const data = tasks.map(t => {
+      const p = promptMap.get(t.task_id) || {};
+      const r = requestMap.get(t.task_id) || {};
+      const gr = resultMap.get(t.task_id) || {};
+      const u = userMap.get(t.user_id) || {};
+      const us = usageMap.get(r.request_id) || {};
+
+      return {
+        task_id: t.task_id,
+        user_id: t.user_id,
+        task_type: t.task_type,
+        status: t.status,
+        created_at: t.created_at,
+        completed_at: t.completed_at,
+        user_name: u.name || 'User',
+        user_email: u.email || '',
+        original_prompt: p.original_prompt || '',
+        optimization_mode: p.optimization_mode || 'Standard',
+        model: r.model || 'claude-sonnet-4-6',
+        processing_time_ms: r.processing_time_ms || 0,
+        total_tokens: us.total_tokens || 0,
+        request_cost: us.request_cost || 0,
+        result_id: gr.result_id,
+        result_format: gr.result_format || 'markdown'
+      };
+    });
 
     res.json({
       success: true,
-      data: dataRes.recordset,
+      data,
       pagination: {
         total,
         page,
@@ -98,56 +129,77 @@ async function getTasks(req, res, next) {
 
 async function getTaskById(req, res, next) {
   try {
-    const taskId = req.params.id;
+    const taskId = parseInt(req.params.id, 10);
     const isAdmin = req.user.role === 'ADMIN';
     const userId = req.user.user_id;
 
-    let authCheck = '';
-    const params = { taskId };
+    const query = { task_id: taskId };
     if (!isAdmin) {
-      authCheck = 'AND t.user_id = @userId';
-      params.userId = userId;
+      query.user_id = userId;
     }
 
-    const querySql = `
-      SELECT 
-        t.task_id, t.user_id, t.task_type, t.status, t.runtime_options, t.created_at, t.completed_at,
-        u.name AS user_name, u.email AS user_email,
-        p.original_prompt, p.optimized_prompt, p.optimization_mode, p.changes_summary,
-        f.file_id, f.file_name, f.file_type, f.file_size,
-        r.request_id, r.model, r.provider, r.processing_time_ms,
-        us.input_tokens, us.output_tokens, us.total_tokens, us.request_cost, us.cumulative_cost, us.remaining_budget,
-        gr.result_id, gr.result_content, gr.result_format
-      FROM dbo.tasks t
-      JOIN dbo.users u ON t.user_id = u.user_id
-      LEFT JOIN dbo.prompts p ON t.task_id = p.task_id
-      LEFT JOIN dbo.files f ON t.task_id = f.task_id
-      LEFT JOIN dbo.api_requests r ON t.task_id = r.task_id
-      LEFT JOIN dbo.api_usage us ON r.request_id = us.request_id
-      LEFT JOIN dbo.generated_results gr ON t.task_id = gr.task_id
-      WHERE t.task_id = @taskId ${authCheck}
-    `;
-
-    const result = await db.query(querySql, params);
-    if (result.recordset.length === 0) {
+    const task = await Task.findOne(query).lean();
+    if (!task) {
       return res.status(404).json({ success: false, error: 'Task not found or unauthorized.' });
     }
 
-    const task = result.recordset[0];
+    const [prompt, file, request, result, user, taskFeatures] = await Promise.all([
+      Prompt.findOne({ task_id: taskId }).lean(),
+      File.findOne({ task_id: taskId }).lean(),
+      ApiRequest.findOne({ task_id: taskId }).lean(),
+      GeneratedResult.findOne({ task_id: taskId }).lean(),
+      User.findOne({ user_id: task.user_id }).lean(),
+      TaskFeature.find({ task_id: taskId }).lean()
+    ]);
 
-    // Load executed features
-    const featRes = await db.query(
-      `SELECT f.feature_name, f.category, f.description
-       FROM dbo.task_features tf
-       JOIN dbo.ai_features f ON tf.feature_id = f.feature_id
-       WHERE tf.task_id = @taskId`,
-      { taskId }
-    );
-    task.ai_features = featRes.recordset;
+    let usage = null;
+    if (request) {
+      usage = await ApiUsage.findOne({ request_id: request.request_id }).lean();
+    }
+
+    let aiFeatures = [];
+    if (taskFeatures && taskFeatures.length > 0) {
+      const featureIds = taskFeatures.map(tf => tf.feature_id);
+      aiFeatures = await AiFeature.find({ feature_id: { $in: featureIds } }).lean();
+    }
+
+    const fullTask = {
+      task_id: task.task_id,
+      user_id: task.user_id,
+      task_type: task.task_type,
+      status: task.status,
+      runtime_options: task.runtime_options,
+      created_at: task.created_at,
+      completed_at: task.completed_at,
+      user_name: user?.name || 'User',
+      user_email: user?.email || '',
+      original_prompt: prompt?.original_prompt || '',
+      optimized_prompt: prompt?.optimized_prompt || '',
+      optimization_mode: prompt?.optimization_mode || 'Standard',
+      changes_summary: prompt?.changes_summary || '',
+      file_id: file?.file_id,
+      file_name: file?.file_name,
+      file_type: file?.file_type,
+      file_size: file?.file_size,
+      request_id: request?.request_id,
+      model: request?.model || 'claude-sonnet-4-6',
+      provider: request?.provider || 'anthropic',
+      processing_time_ms: request?.processing_time_ms || 0,
+      input_tokens: usage?.input_tokens || 0,
+      output_tokens: usage?.output_tokens || 0,
+      total_tokens: usage?.total_tokens || 0,
+      request_cost: usage?.request_cost || 0,
+      cumulative_cost: usage?.cumulative_cost || 0,
+      remaining_budget: usage?.remaining_budget || 5.0,
+      result_id: result?.result_id,
+      result_content: result?.result_text || '',
+      result_format: result?.result_format || 'markdown',
+      ai_features: aiFeatures
+    };
 
     res.json({
       success: true,
-      data: task
+      data: fullTask
     });
   } catch (err) {
     next(err);

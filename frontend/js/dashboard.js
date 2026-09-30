@@ -52,7 +52,7 @@ async function initDashboard() {
       if (activeTab === 'features') await loadFeaturesUsage();
       if (activeTab === 'files') await loadFilesList();
       if (activeTab === 'downloads') await loadDownloadsData();
-      showToast('Dashboard metrics refreshed from SQL Server', 'success');
+      showToast('Dashboard metrics refreshed from MongoDB Atlas', 'success');
       setTimeout(() => {
         refreshBtn.style.pointerEvents = '';
         refreshBtn.style.opacity = '';
@@ -82,7 +82,6 @@ async function loadSystemStatusBadge() {
 
     // 1. Status Cluster Pills
     const claudePill = document.getElementById('pill-claude-status');
-    const sqlPill = document.getElementById('pill-sql-status');
     const mongoPill = document.getElementById('pill-mongo-status');
 
     if (claudePill && data.success) {
@@ -96,31 +95,20 @@ async function loadSystemStatusBadge() {
       }
     }
 
-    if (sqlPill && data.success) {
-      if (data.databaseConnected) {
-        sqlPill.className = 'status-pill status-pill-db';
-        sqlPill.innerHTML = `<span class="db-icon">🗄️</span><span class="pill-label">MS SQL Connected</span>`;
-      }
-    }
-
     if (mongoPill && data.success) {
       if (data.mongoConnected) {
         mongoPill.className = 'status-pill status-pill-atlas';
-        mongoPill.innerHTML = `<span class="db-icon">🍃</span><span class="pill-label">Atlas Synced</span>`;
+        mongoPill.innerHTML = `<span class="db-icon">🍃</span><span class="pill-label">MongoDB Atlas Connected</span>`;
       } else {
         mongoPill.className = 'status-pill status-pill-warn';
-        mongoPill.innerHTML = `<span class="db-icon">🍃</span><span class="pill-label" title="Add IP 157.51.59.186 to Atlas Whitelist">Atlas Standby</span>`;
+        mongoPill.innerHTML = `<span class="db-icon">🍃</span><span class="pill-label">Atlas Connecting...</span>`;
       }
     }
 
     // 2. Legacy status pill fallback
     const pill = document.querySelector('.api-status-pill');
     if (pill && data.success) {
-      if (data.mongoConnected) {
-        pill.innerHTML = `<span class="status-dot" style="background:#10b981;box-shadow:0 0 10px #10b981;"></span><span>Claude Live • MS SQL & Atlas Synced</span>`;
-      } else {
-        pill.innerHTML = `<span class="status-dot" style="background:#00d2ff;box-shadow:0 0 10px #00d2ff;"></span><span>Claude Live • MS SQL Connected</span>`;
-      }
+      pill.innerHTML = `<span class="status-dot" style="background:#10b981;box-shadow:0 0 10px #10b981;"></span><span>Claude Live • MongoDB Atlas Connected</span>`;
     }
   } catch (e) {
     // Ignore status load error

@@ -1,4 +1,4 @@
-const db = require('./database');
+const { ModelPricing } = require('../models');
 
 // Default fallback pricing table (price per 1,000,000 tokens in USD)
 const FALLBACK_PRICING = {
@@ -21,29 +21,23 @@ async function getActiveModelPricing() {
   }
 
   try {
-    const result = await db.query(
-      `SELECT model, input_price_per_million, output_price_per_million, cache_read_price, cache_write_price 
-       FROM dbo.model_pricing 
-       WHERE is_active = 1`
-    );
-
-    const pricing = {};
-    for (const row of result.recordset) {
-      pricing[row.model] = {
-        input: parseFloat(row.input_price_per_million),
-        output: parseFloat(row.output_price_per_million),
-        cache_read: parseFloat(row.cache_read_price || 0),
-        cache_write: parseFloat(row.cache_write_price || 0)
-      };
-    }
-
-    if (Object.keys(pricing).length > 0) {
+    const rows = await ModelPricing.find({ is_active: true }).lean();
+    if (rows && rows.length > 0) {
+      const pricing = {};
+      for (const row of rows) {
+        pricing[row.model] = {
+          input: Number(row.input_price_per_million) || 3.0,
+          output: Number(row.output_price_per_million) || 15.0,
+          cache_read: Number(row.cache_read_price || 0.3),
+          cache_write: Number(row.cache_write_price || 3.75)
+        };
+      }
       pricingCache = pricing;
       lastFetchTime = now;
       return pricing;
     }
   } catch (err) {
-    console.warn('[Pricing] Could not load from DB, falling back to defaults:', err.message);
+    // Return fallback silently if MongoDB is initializing
   }
 
   return FALLBACK_PRICING;

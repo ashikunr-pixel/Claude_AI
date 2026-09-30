@@ -81,25 +81,33 @@ app.use('/api/*', notFoundHandler);
 app.use(errorHandler);
 
 // Start server
-app.listen(PORT, async () => {
+async function startServer() {
   console.log('================================================================');
   console.log('       CLAUDE AI ENTERPRISE PLATFORM & USAGE MONITOR             ');
   console.log('================================================================');
-  console.log(`[Server]   Running at: http://localhost:${PORT}`);
-  console.log(`[Frontend] Serving UI from: ${frontendPath}`);
-  console.log(`[Claude]   Default Model: ${DEFAULT_MODEL}`);
-  console.log(`[API Key]  Status: ${isApiKeyConfigured() ? 'Configured (' + getMaskedApiKey() + ')' : 'MISSING / EMPTY in .env'}`);
   
+  // 1. Connect to MongoDB Atlas FIRST
+  await connectMongo();
+
+  // 2. Load budget telemetry
   try {
     const budget = await getBudgetStatus();
     console.log(`[Budget]   Safety Limit: $${budget.budgetUsd.toFixed(2)} USD (Spent: $${budget.cumulativeSpent.toFixed(4)} | Remaining: $${budget.remainingBudget.toFixed(4)})`);
   } catch (err) {
     console.warn(`[Budget]   Warning reading budget on startup: ${err.message}`);
   }
-  
-  // Connect to MongoDB Atlas (if configured)
-  await connectMongo();
-  console.log('================================================================');
-});
+
+  // 3. Open port to incoming traffic
+  app.listen(PORT, () => {
+    console.log(`[Server]   Running at: http://localhost:${PORT}`);
+    console.log(`[Frontend] Serving UI from: ${frontendPath}`);
+    console.log(`[Claude]   Default Model: ${DEFAULT_MODEL}`);
+    console.log(`[API Key]  Status: ${isApiKeyConfigured() ? 'Configured (' + getMaskedApiKey() + ')' : 'MISSING / EMPTY in .env'}`);
+    console.log(`[Database] Engine: MongoDB Atlas Cluster [100% Native]`);
+    console.log('================================================================');
+  });
+}
+
+startServer();
 
 module.exports = app;

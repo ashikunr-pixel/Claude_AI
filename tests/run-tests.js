@@ -8,7 +8,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const path = require('path');
-const db = require('../backend/config/database');
+const { connectMongo, isMongoConnected } = require('../backend/config/mongo');
+const mongoose = require('mongoose');
 const { estimateTokens, extractUsageTokens } = require('../backend/services/token.service');
 const { calculateRequestCost, estimateRequestCost } = require('../backend/services/cost.service');
 const { getBudgetStatus, checkBudgetSafety } = require('../backend/services/budget.service');
@@ -36,24 +37,21 @@ async function runTestSuite() {
   console.log('        CLAUDE AI PLATFORM - AUTOMATED VERIFICATION SUITE       ');
   console.log('================================================================\n');
 
-  // Test 1: Database Connection & Schema Verification
-  console.log('[Test Group 1: SQL Server Database Connectivity & Tables]');
+  // Test 1: MongoDB Atlas Connectivity & Collections Verification
+  console.log('[Test Group 1: MongoDB Atlas Database Connectivity & Collections]');
   try {
-    const tableRes = await db.query(
-      `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'`
-    );
-    const tables = tableRes.recordset.map(t => t.TABLE_NAME.toLowerCase());
-    const requiredTables = [
-      'users', 'tasks', 'files', 'prompts', 'api_requests',
-      'api_usage', 'model_pricing', 'ai_features', 'task_features',
-      'generated_results', 'budget_settings', 'audit_logs'
-    ];
+    await connectMongo();
+    assert(isMongoConnected(), 'MongoDB Atlas cluster connected successfully (readyState === 1)');
 
-    for (const tbl of requiredTables) {
-      assert(tables.includes(tbl), `Table [dbo.${tbl}] exists in SQL Server ClaudeAI_DB`);
+    const collections = await mongoose.connection.db.listCollections().toArray();
+    const collectionNames = collections.map(c => c.name.toLowerCase());
+    const requiredCollections = ['users', 'tasks', 'files', 'prompts', 'apirequests', 'apiusages', 'modelpricings', 'aifeatures', 'budgetsettings'];
+
+    for (const col of requiredCollections) {
+      assert(collectionNames.includes(col), `MongoDB Collection [${col}] exists in MongoDB Atlas`);
     }
   } catch (err) {
-    assert(false, `Database query failed: ${err.message}`);
+    assert(false, `MongoDB Atlas connection failed: ${err.message}`);
   }
 
   // Test 2: Authentication & Password Hashing
