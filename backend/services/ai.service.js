@@ -340,7 +340,7 @@ ${fileText}
           feature_id: featDoc.feature_id
         });
       }
-    } catch {}
+    } catch { }
   }
 
   // 11. Mark Task Completed in MongoDB Atlas
@@ -361,7 +361,7 @@ ${fileText}
     taskType,
     tokens: usageTokens.totalTokens,
     cost: usageRecord.requestCost
-  }).catch(() => {});
+  }).catch(() => { });
 
   return {
     taskId,
