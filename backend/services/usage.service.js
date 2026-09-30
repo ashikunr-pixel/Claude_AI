@@ -31,48 +31,53 @@ async function recordRequestUsage({
   const newRemainingBudget = Math.max(0, Number((budget.budgetUsd - newCumulativeCost).toFixed(6)));
   const totalTokens = inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens;
 
-  // Insert usage record
-  const result = await db.query(
-    `INSERT INTO dbo.api_usage (
-       request_id, input_tokens, output_tokens, total_tokens,
-       cache_creation_tokens, cache_read_tokens, request_cost,
-       cumulative_cost, remaining_budget, created_at
-     )
-     VALUES (
-       @requestId, @inputTokens, @outputTokens, @totalTokens,
-       @cacheCreationTokens, @cacheReadTokens, @requestCost,
-       @newCumulativeCost, @newRemainingBudget, SYSUTCDATETIME()
-     );
-     SELECT SCOPE_IDENTITY() AS usage_id;`,
-    {
-      requestId,
-      inputTokens,
-      outputTokens,
-      totalTokens,
-      cacheCreationTokens,
-      cacheReadTokens,
-      requestCost,
-      newCumulativeCost,
-      newRemainingBudget
-    }
-  );
+  let usageId = Math.floor(Date.now() / 1000);
+  try {
+    // Insert usage record
+    const result = await db.query(
+      `INSERT INTO dbo.api_usage (
+         request_id, input_tokens, output_tokens, total_tokens,
+         cache_creation_tokens, cache_read_tokens, request_cost,
+         cumulative_cost, remaining_budget, created_at
+       )
+       VALUES (
+         @requestId, @inputTokens, @outputTokens, @totalTokens,
+         @cacheCreationTokens, @cacheReadTokens, @requestCost,
+         @newCumulativeCost, @newRemainingBudget, SYSUTCDATETIME()
+       );
+       SELECT SCOPE_IDENTITY() AS usage_id;`,
+      {
+        requestId,
+        inputTokens,
+        outputTokens,
+        totalTokens,
+        cacheCreationTokens,
+        cacheReadTokens,
+        requestCost,
+        newCumulativeCost,
+        newRemainingBudget
+      }
+    );
 
-  const usageId = result.recordset[0].usage_id;
+    usageId = result.recordset[0].usage_id;
 
-  // Update request status and time
-  await db.query(
-    `UPDATE dbo.api_requests 
-     SET status = @status, 
-         processing_time_ms = @processingTimeMs, 
-         error_message = @errorMessage 
-     WHERE request_id = @requestId`,
-    {
-      status,
-      processingTimeMs,
-      errorMessage,
-      requestId
-    }
-  );
+    // Update request status and time
+    await db.query(
+      `UPDATE dbo.api_requests 
+       SET status = @status, 
+           processing_time_ms = @processingTimeMs, 
+           error_message = @errorMessage 
+       WHERE request_id = @requestId`,
+      {
+        status,
+        processingTimeMs,
+        errorMessage,
+        requestId
+      }
+    );
+  } catch (sqlErr) {
+    console.warn('[UsageService] SQL write bypassed, syncing to MongoDB Atlas:', sqlErr.message);
+  }
 
   // Sync to MongoDB if connected
   mongoService.syncApiUsage({
@@ -111,52 +116,112 @@ async function getDashboardSummary(userId = null, role = 'USER') {
   const userFilter = !isAdmin && userId ? 'WHERE r.user_id = @userId' : '';
   const taskUserFilter = !isAdmin && userId ? 'WHERE t.user_id = @userId' : '';
 
-  // 1. Core Totals
-  const queryTotals = `
-    SELECT 
-      ISNULL(COUNT(u.usage_id), 0) AS total_requests,
-      ISNULL(SUM(CAST(u.input_tokens AS BIGINT)), 0) AS total_input_tokens,
-      ISNULL(SUM(CAST(u.output_tokens AS BIGINT)), 0) AS total_output_tokens,
-      ISNULL(SUM(CAST(u.total_tokens AS BIGINT)), 0) AS total_tokens,
-      ISNULL(SUM(u.request_cost), 0.0) AS total_cost
-    FROM dbo.api_usage u
-    JOIN dbo.api_requests r ON u.request_id = r.request_id
-    ${userFilter}
-  `;
+  try {
+    // 1. Core Totals
+    const queryTotals = `
+      SELECT 
+        ISNULL(COUNT(u.usage_id), 0) AS total_requests,
+        ISNULL(SUM(CAST(u.input_tokens AS BIGINT)), 0) AS total_input_tokens,
+        ISNULL(SUM(CAST(u.output_tokens AS BIGINT)), 0) AS total_output_tokens,
+        ISNULL(SUM(CAST(u.total_tokens AS BIGINT)), 0) AS total_tokens,
+        ISNULL(SUM(u.request_cost), 0.0) AS total_cost
+      FROM dbo.api_usage u
+      JOIN dbo.api_requests r ON u.request_id = r.request_id
+      ${userFilter}
+    `;
 
-  const totalsResult = await db.query(queryTotals, { userId });
-  const totals = totalsResult.recordset[0];
+    const totalsResult = await db.query(queryTotals, { userId });
+    const totals = totalsResult.recordset[0];
 
-  // 2. Total Tasks Count
-  const tasksResult = await db.query(
-    `SELECT COUNT(*) AS total_tasks FROM dbo.tasks t ${taskUserFilter}`,
-    { userId }
-  );
-  const totalTasks = tasksResult.recordset[0].total_tasks;
+    // 2. Total Tasks Count
+    const tasksResult = await db.query(
+      `SELECT COUNT(*) AS total_tasks FROM dbo.tasks t ${taskUserFilter}`,
+      { userId }
+    );
+    const totalTasks = tasksResult.recordset[0].total_tasks;
 
-  // 3. Application Safety Budget
-  const budget = await getBudgetStatus();
+    // 3. Application Safety Budget
+    const budget = await getBudgetStatus();
 
-  const totalCost = parseFloat(totals.total_cost || 0);
-  const totalRequests = parseInt(totals.total_requests || 0, 10);
-  const avgCostPerRequest = totalRequests > 0 ? Number((totalCost / totalRequests).toFixed(6)) : 0.0;
+    const totalCost = parseFloat(totals.total_cost || 0);
+    const totalRequests = parseInt(totals.total_requests || 0, 10);
+    const avgCostPerRequest = totalRequests > 0 ? Number((totalCost / totalRequests).toFixed(6)) : 0.0;
 
-  return {
-    totalTasks,
-    totalRequests,
-    inputTokens: parseInt(totals.total_input_tokens || 0, 10),
-    outputTokens: parseInt(totals.total_output_tokens || 0, 10),
-    totalTokens: parseInt(totals.total_tokens || 0, 10),
-    totalCost: Number(totalCost.toFixed(6)),
-    applicationBudget: budget.budgetUsd,
-    usedBudget: budget.cumulativeSpent,
-    remainingBudget: budget.remainingBudget,
-    usagePercentage: budget.usagePercentage,
-    avgCostPerRequest,
-    budgetStatus: budget.status,
-    warningThreshold: budget.warningThreshold,
-    hardStopEnabled: budget.hardStopEnabled
-  };
+    return {
+      totalTasks,
+      totalRequests,
+      inputTokens: parseInt(totals.total_input_tokens || 0, 10),
+      outputTokens: parseInt(totals.total_output_tokens || 0, 10),
+      totalTokens: parseInt(totals.total_tokens || 0, 10),
+      totalCost: Number(totalCost.toFixed(6)),
+      applicationBudget: budget.budgetUsd,
+      usedBudget: budget.cumulativeSpent,
+      remainingBudget: budget.remainingBudget,
+      usagePercentage: budget.usagePercentage,
+      avgCostPerRequest,
+      budgetStatus: budget.status,
+      warningThreshold: budget.warningThreshold,
+      hardStopEnabled: budget.hardStopEnabled
+    };
+  } catch (sqlErr) {
+    // MongoDB Atlas fallback
+    try {
+      const { ApiUsage, Task } = require('../models');
+      const budget = await getBudgetStatus();
+      const usages = await ApiUsage.find({});
+      const totalTasks = await Task.countDocuments({});
+
+      const totalRequests = usages.length;
+      let inputTokens = 0;
+      let outputTokens = 0;
+      let totalTokens = 0;
+      let totalCost = 0;
+
+      for (const u of usages) {
+        inputTokens += (u.input_tokens || 0);
+        outputTokens += (u.output_tokens || 0);
+        totalTokens += (u.total_tokens || (u.input_tokens || 0) + (u.output_tokens || 0));
+        totalCost += (u.request_cost || 0);
+      }
+
+      const avgCostPerRequest = totalRequests > 0 ? Number((totalCost / totalRequests).toFixed(6)) : 0.0;
+
+      return {
+        totalTasks,
+        totalRequests,
+        inputTokens,
+        outputTokens,
+        totalTokens,
+        totalCost: Number(totalCost.toFixed(6)),
+        applicationBudget: budget.budgetUsd,
+        usedBudget: budget.cumulativeSpent,
+        remainingBudget: budget.remainingBudget,
+        usagePercentage: budget.usagePercentage,
+        avgCostPerRequest,
+        budgetStatus: budget.status,
+        warningThreshold: budget.warningThreshold,
+        hardStopEnabled: budget.hardStopEnabled
+      };
+    } catch {
+      const budget = await getBudgetStatus();
+      return {
+        totalTasks: 0,
+        totalRequests: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        totalCost: 0,
+        applicationBudget: budget.budgetUsd,
+        usedBudget: 0,
+        remainingBudget: budget.budgetUsd,
+        usagePercentage: 0,
+        avgCostPerRequest: 0,
+        budgetStatus: 'SAFE',
+        warningThreshold: 80,
+        hardStopEnabled: false
+      };
+    }
+  }
 }
 
 /**
@@ -220,51 +285,97 @@ async function getUsageRequests({
     LEFT JOIN dbo.users u ON r.user_id = u.user_id
     ${whereClause}
   `;
-  const countRes = await db.query(countSql, params);
-  const totalCount = countRes.recordset[0].total_count;
+  try {
+    const countRes = await db.query(countSql, params);
+    const totalCount = countRes.recordset[0].total_count;
 
-  // Paged records
-  const dataSql = `
-    SELECT 
-      r.request_id,
-      r.created_at,
-      r.model,
-      r.provider,
-      r.status,
-      r.processing_time_ms,
-      t.task_id,
-      t.task_type,
-      u.name AS user_name,
-      u.email AS user_email,
-      p.original_prompt,
-      p.optimized_prompt,
-      ISNULL(us.input_tokens, 0) AS input_tokens,
-      ISNULL(us.output_tokens, 0) AS output_tokens,
-      ISNULL(us.total_tokens, 0) AS total_tokens,
-      ISNULL(us.request_cost, 0.0) AS request_cost,
-      ISNULL(us.cumulative_cost, 0.0) AS cumulative_cost,
-      ISNULL(us.remaining_budget, 5.0) AS remaining_budget
-    FROM dbo.api_requests r
-    LEFT JOIN dbo.api_usage us ON r.request_id = us.request_id
-    LEFT JOIN dbo.tasks t ON r.task_id = t.task_id
-    LEFT JOIN dbo.prompts p ON t.task_id = p.task_id
-    LEFT JOIN dbo.users u ON r.user_id = u.user_id
-    ${whereClause}
-    ORDER BY r.created_at DESC
-    OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY;
-  `;
+    // Paged records
+    const dataSql = `
+      SELECT 
+        r.request_id,
+        r.created_at,
+        r.model,
+        r.provider,
+        r.status,
+        r.processing_time_ms,
+        t.task_id,
+        t.task_type,
+        u.name AS user_name,
+        u.email AS user_email,
+        p.original_prompt,
+        p.optimized_prompt,
+        ISNULL(us.input_tokens, 0) AS input_tokens,
+        ISNULL(us.output_tokens, 0) AS output_tokens,
+        ISNULL(us.total_tokens, 0) AS total_tokens,
+        ISNULL(us.request_cost, 0.0) AS request_cost,
+        ISNULL(us.cumulative_cost, 0.0) AS cumulative_cost,
+        ISNULL(us.remaining_budget, 5.0) AS remaining_budget
+      FROM dbo.api_requests r
+      LEFT JOIN dbo.api_usage us ON r.request_id = us.request_id
+      LEFT JOIN dbo.tasks t ON r.task_id = t.task_id
+      LEFT JOIN dbo.prompts p ON t.task_id = p.task_id
+      LEFT JOIN dbo.users u ON r.user_id = u.user_id
+      ${whereClause}
+      ORDER BY r.created_at DESC
+      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY;
+    `;
 
-  const dataRes = await db.query(dataSql, params);
+    const dataRes = await db.query(dataSql, params);
 
-  return {
-    requests: dataRes.recordset,
-    pagination: {
-      total: totalCount,
-      page,
-      limit,
-      totalPages: Math.ceil(totalCount / limit)
+    return {
+      requests: dataRes.recordset,
+      pagination: {
+        total: totalCount,
+        page,
+        limit,
+        totalPages: Math.ceil(totalCount / limit)
+      }
+    };
+  } catch (sqlErr) {
+    try {
+      const { ApiRequest, ApiUsage } = require('../models');
+      const docs = await ApiRequest.find().sort({ created_at: -1 }).skip(offset).limit(limit);
+      const totalCount = await ApiRequest.countDocuments();
+      const usages = await ApiUsage.find();
+      const usageMap = new Map();
+      usages.forEach(u => usageMap.set(u.request_id, u));
+
+      const requests = docs.map(d => {
+        const u = usageMap.get(d.request_id) || {};
+        return {
+          request_id: d.request_id,
+          created_at: d.created_at,
+          model: d.model,
+          provider: d.provider,
+          status: d.status,
+          processing_time_ms: d.processing_time_ms,
+          task_id: d.task_id,
+          task_type: 'General',
+          input_tokens: u.input_tokens || 0,
+          output_tokens: u.output_tokens || 0,
+          total_tokens: u.total_tokens || 0,
+          request_cost: u.request_cost || 0,
+          cumulative_cost: u.cumulative_cost || 0,
+          remaining_budget: u.remaining_budget || 5.0
+        };
+      });
+
+      return {
+        requests,
+        pagination: {
+          total: totalCount,
+          page,
+          limit,
+          totalPages: Math.ceil(totalCount / limit)
+        }
+      };
+    } catch {
+      return {
+        requests: [],
+        pagination: { total: 0, page: 1, limit, totalPages: 1 }
+      };
     }
-  };
+  }
 }
 
 /**

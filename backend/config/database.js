@@ -1,20 +1,32 @@
-const sql = require('mssql/msnodesqlv8');
+const sql = require('mssql');
 require('dotenv').config();
 
 const server = process.env.DB_SERVER || 'localhost\\SQLEXPRESS';
 const database = process.env.DB_DATABASE || 'ClaudeAI_DB';
-const driver = process.env.DB_DRIVER || 'ODBC Driver 17 for SQL Server';
+const user = process.env.DB_USER;
+const password = process.env.DB_PASSWORD;
+const port = parseInt(process.env.DB_PORT || '1433', 10);
+
+const parts = server.split('\\');
+const serverHost = parts[0] || 'localhost';
+const instanceName = parts[1] || undefined;
 
 const config = {
-  connectionString: `Driver={${driver}};Server=${server};Database=${database};Trusted_Connection=yes;`,
-  parseJSON: true,
+  user,
+  password,
+  server: serverHost,
+  database,
+  port: instanceName ? undefined : port,
   options: {
     enableArithAbort: true,
-    trustServerCertificate: true
+    trustServerCertificate: true,
+    instanceName
   },
+  connectionTimeout: 4000,
+  requestTimeout: 15000,
   pool: {
-    max: 20,
-    min: 1,
+    max: 15,
+    min: 0,
     idleTimeoutMillis: 30000
   }
 };
