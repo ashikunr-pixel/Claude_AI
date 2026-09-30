@@ -79,6 +79,41 @@ async function loadSystemStatusBadge() {
   try {
     const res = await fetch('/api/system/status');
     const data = await res.json();
+
+    // 1. Status Cluster Pills
+    const claudePill = document.getElementById('pill-claude-status');
+    const sqlPill = document.getElementById('pill-sql-status');
+    const mongoPill = document.getElementById('pill-mongo-status');
+
+    if (claudePill && data.success) {
+      const modelShort = (data.defaultModel || 'claude-sonnet-4-6').replace('claude-', '');
+      if (data.apiKeyConfigured) {
+        claudePill.className = 'status-pill status-pill-live';
+        claudePill.innerHTML = `<span class="status-beacon"></span><span class="pill-label">Claude ${modelShort} Live</span>`;
+      } else {
+        claudePill.className = 'status-pill status-pill-warn';
+        claudePill.innerHTML = `<span class="status-beacon warn"></span><span class="pill-label">API Key Needed</span>`;
+      }
+    }
+
+    if (sqlPill && data.success) {
+      if (data.databaseConnected) {
+        sqlPill.className = 'status-pill status-pill-db';
+        sqlPill.innerHTML = `<span class="db-icon">🗄️</span><span class="pill-label">MS SQL Connected</span>`;
+      }
+    }
+
+    if (mongoPill && data.success) {
+      if (data.mongoConnected) {
+        mongoPill.className = 'status-pill status-pill-atlas';
+        mongoPill.innerHTML = `<span class="db-icon">🍃</span><span class="pill-label">Atlas Synced</span>`;
+      } else {
+        mongoPill.className = 'status-pill status-pill-warn';
+        mongoPill.innerHTML = `<span class="db-icon">🍃</span><span class="pill-label" title="Add IP 157.51.59.186 to Atlas Whitelist">Atlas Standby</span>`;
+      }
+    }
+
+    // 2. Legacy status pill fallback
     const pill = document.querySelector('.api-status-pill');
     if (pill && data.success) {
       if (data.mongoConnected) {

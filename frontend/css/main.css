@@ -305,14 +305,17 @@ body::after {
 
 /* Header Navbar */
 .app-header {
-  height: var(--header-height);
+  min-height: var(--header-height);
+  height: auto;
   border-bottom: 1px solid var(--border-color);
-  padding: 0 32px;
+  padding: 16px 32px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(10, 13, 20, 0.8);
-  backdrop-filter: blur(12px);
+  flex-wrap: wrap;
+  gap: 16px;
+  background: rgba(10, 13, 20, 0.88);
+  backdrop-filter: blur(16px);
   position: sticky;
   top: 0;
   z-index: 50;
@@ -332,7 +335,8 @@ body::after {
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .api-status-pill {

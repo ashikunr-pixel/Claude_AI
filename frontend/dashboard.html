@@ -98,26 +98,42 @@
 
     <!-- Main Content Area -->
     <main class="app-main">
-      <header class="app-header">
+      <header class="app-header executive-header">
         <div class="header-title">
-          <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--accent-cyan); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px;">
-            <span>Claude AI Platform</span>
-            <span style="color: var(--text-dim);">/</span>
-            <span style="color: #fff;">Executive Telemetry</span>
+          <div class="header-breadcrumb">
+            <span class="badge-brand-chip">
+              <span class="brand-sparkle">✦</span> Claude AI Platform
+            </span>
+            <span class="breadcrumb-divider">/</span>
+            <span class="breadcrumb-current">Executive Telemetry</span>
           </div>
-          <h2>Executive Intelligence Dashboard</h2>
-          <p>Real-time Claude Token Consumption, Cost Tracking & Budget Guardrails</p>
+          <h2 class="executive-title">Executive Intelligence Dashboard</h2>
+          <p class="executive-subtitle">Real-time Claude Token Consumption, Cost Tracking & Budget Guardrails</p>
         </div>
+
         <div class="header-actions">
-          <div class="api-status-pill">
-            <span class="status-dot"></span>
-            <span>Claude Live • MS SQL Connected</span>
+          <!-- Dual-Database & API Live Status Hub -->
+          <div class="status-cluster" id="header-status-cluster">
+            <div class="status-pill status-pill-live" id="pill-claude-status" title="Anthropic Claude API Active">
+              <span class="status-beacon"></span>
+              <span class="pill-label">Claude Sonnet 4.6 Live</span>
+            </div>
+            <div class="status-pill status-pill-db" id="pill-sql-status" title="Microsoft SQL Server Active">
+              <span class="db-icon">🗄️</span>
+              <span class="pill-label">MS SQL Connected</span>
+            </div>
+            <div class="status-pill status-pill-atlas" id="pill-mongo-status" title="MongoDB Atlas Active">
+              <span class="db-icon">🍃</span>
+              <span class="pill-label">Atlas Synced</span>
+            </div>
           </div>
-          <button id="btn-dashboard-refresh" class="btn btn-secondary btn-sm" title="Refresh Live Metrics">
+
+          <button id="btn-dashboard-refresh" class="btn btn-secondary btn-sm refresh-btn-glow" title="Refresh Live Telemetry">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             <span>Refresh</span>
           </button>
-          <a href="processor.html" class="btn btn-primary btn-sm">
+
+          <a href="processor.html" class="btn btn-primary btn-sm action-btn-primary">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             <span>+ New AI Task</span>
           </a>
