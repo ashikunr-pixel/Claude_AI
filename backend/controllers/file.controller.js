@@ -53,20 +53,32 @@ async function uploadFile(req, res, next) {
 
       // Extract text from uploaded document
       const extraction = await extractTextFromFile(req.file.path, req.file.originalname, removeDuplicates);
-      const fileId = await getNextSequence('fileId');
 
-      await File.create({
-        file_id: fileId,
-        user_id: userId,
-        file_name: sanitizeFileName(req.file.originalname),
-        file_type: extraction.fileType,
-        file_size: req.file.size,
-        storage_path: req.file.path,
-        extracted_text: extraction.text,
-        created_at: new Date()
-      });
+      let finalFileId;
+      let fileDoc;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          finalFileId = await getNextSequence('file_id');
+          fileDoc = await File.create({
+            file_id: finalFileId,
+            user_id: userId,
+            file_name: sanitizeFileName(req.file.originalname),
+            file_type: extraction.fileType,
+            file_size: req.file.size,
+            storage_path: req.file.path,
+            extracted_text: extraction.text,
+            created_at: new Date()
+          });
+          break;
+        } catch (insertErr) {
+          if (insertErr.code === 11000 && attempt < 2) {
+            continue;
+          }
+          throw insertErr;
+        }
+      }
 
-      logger.audit(userId, 'FILE_UPLOAD', 'FILE', fileId, {
+      logger.audit(userId, 'FILE_UPLOAD', 'FILE', finalFileId, {
         fileName: req.file.originalname,
         size: req.file.size,
         chars: extraction.cleanedLength
@@ -76,7 +88,7 @@ async function uploadFile(req, res, next) {
         success: true,
         message: 'File uploaded and parsed successfully.',
         file: {
-          fileId,
+          fileId: finalFileId,
           fileName: sanitizeFileName(req.file.originalname),
           fileType: extraction.fileType,
           fileSize: req.file.size,

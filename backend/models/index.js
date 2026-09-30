@@ -7,12 +7,69 @@ const counterSchema = new mongoose.Schema({
 });
 const Counter = mongoose.model('Counter', counterSchema);
 
+const SEQUENCE_CONFIG = {
+  file: { modelName: 'File', field: 'file_id' },
+  task: { modelName: 'Task', field: 'task_id' },
+  user: { modelName: 'User', field: 'user_id' },
+  prompt: { modelName: 'Prompt', field: 'prompt_id' },
+  request: { modelName: 'ApiRequest', field: 'request_id' },
+  usage: { modelName: 'ApiUsage', field: 'usage_id' },
+  result: { modelName: 'GeneratedResult', field: 'result_id' },
+  taskfeature: { modelName: 'TaskFeature', field: 'task_feature_id' },
+  log: { modelName: 'AuditLog', field: 'log_id' }
+};
+
+function normalizeSeqKey(name) {
+  const clean = String(name || '').toLowerCase().replace(/[^a-z]/g, '');
+  for (const prefix of Object.keys(SEQUENCE_CONFIG)) {
+    if (clean.startsWith(prefix)) {
+      return prefix;
+    }
+  }
+  return clean;
+}
+
 async function getNextSequence(name) {
+  const prefix = normalizeSeqKey(name);
+  const cfg = SEQUENCE_CONFIG[prefix];
+  const canonicalId = cfg ? cfg.field : name;
+
+  let maxExisting = 0;
+  if (cfg && mongoose.models && mongoose.models[cfg.modelName]) {
+    try {
+      const TargetModel = mongoose.models[cfg.modelName];
+      const maxDoc = await TargetModel.findOne()
+        .sort({ [cfg.field]: -1 })
+        .select({ [cfg.field]: 1 })
+        .lean();
+      if (maxDoc && typeof maxDoc[cfg.field] === 'number') {
+        maxExisting = maxDoc[cfg.field];
+      }
+    } catch (e) {
+      // Model not yet ready or empty collection
+    }
+  }
+
+  const currentCounter = await Counter.findById(canonicalId).lean();
+  const currentSeq = (currentCounter && typeof currentCounter.seq === 'number') ? currentCounter.seq : 0;
+  const baseline = Math.max(currentSeq, maxExisting);
+  const nextSeq = baseline + 1;
+
   const counter = await Counter.findByIdAndUpdate(
-    name,
-    { $inc: { seq: 1 } },
+    canonicalId,
+    { $set: { seq: nextSeq } },
     { returnDocument: 'after', upsert: true }
   );
+
+  // Sync alternative names (e.g. camelCase like 'fileId') to keep counters consistent
+  if (name !== canonicalId) {
+    await Counter.findByIdAndUpdate(
+      name,
+      { $set: { seq: counter.seq } },
+      { upsert: true }
+    ).catch(() => {});
+  }
+
   return counter.seq;
 }
 
