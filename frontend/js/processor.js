@@ -277,16 +277,16 @@ async function handleFileSelected(file) {
 
   try {
     const res = await api.uploadFile(formData);
-    const data = res.data;
+    const data = (res && (res.data || res.file)) ? (res.data || res.file) : (res || {});
 
-    attachedFileId = data.fileId;
-    attachedFileName = data.fileName;
-    attachedFileText = data.preview || '';
+    attachedFileId = data.fileId || data.file_id;
+    attachedFileName = data.fileName || data.file_name || (file && file.name) || 'Uploaded Document';
+    attachedFileText = data.preview || data.previewText || data.extractedText || '';
 
     if (dropzone) dropzone.style.display = 'none';
     if (attachedBox) attachedBox.style.display = 'flex';
-    if (fileNameEl) fileNameEl.textContent = `${data.fileName} (${(data.fileSize / 1024).toFixed(1)} KB)`;
-    if (fileCharsEl) fileCharsEl.textContent = `${data.extractedCharacters} chars extracted`;
+    if (fileNameEl) fileNameEl.textContent = `${attachedFileName} (${(((data.fileSize || file.size || 0)) / 1024).toFixed(1)} KB)`;
+    if (fileCharsEl) fileCharsEl.textContent = `${data.extractedCharacters || data.charCount || attachedFileText.length} chars extracted`;
 
     // Automatically suggest in-file command execution if prompt is empty or default
     const promptInput = document.getElementById('processor-prompt');
@@ -505,7 +505,7 @@ async function handleStartProcessing() {
   try {
     updateStepper('Processing');
     const res = await api.processTask(payload);
-    const data = res.data;
+    const data = (res && res.data) ? res.data : res;
 
     updateStepper('Recording Usage');
     updateStepper('Completed');

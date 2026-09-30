@@ -84,19 +84,24 @@ async function uploadFile(req, res, next) {
         chars: extraction.cleanedLength
       }).catch(() => {});
 
+      const filePayload = {
+        fileId: finalFileId,
+        fileName: sanitizeFileName(req.file.originalname),
+        fileType: extraction.fileType,
+        fileSize: req.file.size,
+        charCount: extraction.cleanedLength,
+        extractedCharacters: extraction.cleanedLength,
+        estimatedTokens: extraction.estimatedTokens,
+        preview: extraction.previewText || extraction.text || '',
+        previewText: extraction.previewText || '',
+        extractedText: extraction.text || ''
+      };
+
       res.status(201).json({
         success: true,
         message: 'File uploaded and parsed successfully.',
-        file: {
-          fileId: finalFileId,
-          fileName: sanitizeFileName(req.file.originalname),
-          fileType: extraction.fileType,
-          fileSize: req.file.size,
-          charCount: extraction.cleanedLength,
-          estimatedTokens: extraction.estimatedTokens,
-          previewText: extraction.previewText,
-          extractedText: extraction.text
-        }
+        file: filePayload,
+        data: filePayload
       });
     } catch (extractErr) {
       if (req.file && fs.existsSync(req.file.path)) {
