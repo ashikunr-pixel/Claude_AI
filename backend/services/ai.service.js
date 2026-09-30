@@ -1,0 +1,412 @@
+const fs = require('fs');
+const path = require('path');
+const db = require('../config/database');
+const { getAnthropicClient, isApiKeyConfigured, DEFAULT_MODEL } = require('../config/ai');
+const { extractUsageTokens } = require('./token.service');
+const { checkBudgetSafety } = require('./budget.service');
+const { recordRequestUsage } = require('./usage.service');
+const { estimateRequestCost } = require('./cost.service');
+const mongoService = require('./mongo.service');
+const logger = require('../utils/logger');
+
+// Predefined AI Toolkit Tasks with category and mapped AI feature
+const TOOLKIT_TASKS = {
+  // Text AI
+  'ai-chat': { category: 'Text AI', feature: 'AI Chat', systemPrompt: 'You are an intelligent, conversational AI assistant. Engage clearly and helpfully.' },
+  'text-generation': { category: 'Text AI', feature: 'Text Generation', systemPrompt: 'You are an articulate, creative writer. Produce high-quality, engaging content.' },
+  'summarization': { category: 'Text AI', feature: 'Summarization', systemPrompt: 'You are an expert executive summarizer. Synthesize content concisely with key takeaways.' },
+  'rewriting': { category: 'Text AI', feature: 'Rewriting', systemPrompt: 'You are an expert editor. Rewrite content to improve clarity, flow, and elegance.' },
+  'grammar': { category: 'Text AI', feature: 'Grammar Improvement', systemPrompt: 'You are a master proofreader. Correct grammatical, spelling, and stylistic errors.' },
+  'translation': { category: 'Text AI', feature: 'Translation', systemPrompt: 'You are a professional multilingual translator. Provide faithful, natural translations.' },
+  'text-analysis': { category: 'Text AI', feature: 'Text Analysis', systemPrompt: 'You are a linguistic and semantic analyst. Evaluate themes, tone, readability, and structure.' },
+  'info-extraction': { category: 'Text AI', feature: 'Information Extraction', systemPrompt: 'You are a precise data extractor. Identify and list entities, dates, metrics, and facts.' },
+  'classification': { category: 'Text AI', feature: 'Classification', systemPrompt: 'You are a taxonomy specialist. Categorize the input into distinct, well-defined categories.' },
+  'sentiment-analysis': { category: 'Text AI', feature: 'Sentiment Analysis', systemPrompt: 'You are a sentiment intelligence expert. Analyze emotional valence, tone, and subjectivity.' },
+  'qa': { category: 'Text AI', feature: 'Question Answering', systemPrompt: 'You are a knowledgeable Q&A specialist. Answer questions directly using the provided context.' },
+  'structured-output': { category: 'Text AI', feature: 'Structured Output', systemPrompt: 'You are an information architect. Organize the output into clear, structured markdown tables and sections.' },
+  'json-generation': { category: 'Text AI', feature: 'JSON Generation', systemPrompt: 'You are a strict data formatter. Output ONLY valid, parseable JSON conforming to user requirements.' },
+  'content-transform': { category: 'Text AI', feature: 'Content Transformation', systemPrompt: 'You are a versatile content transformer. Adapt content between formats, tones, and audiences.' },
+
+  'doc-summary': { category: 'Document AI', feature: 'Document Summarization', systemPrompt: 'You are a document intelligence analyst. Summarize multi-page documents comprehensively.' },
+  'doc-qa': { category: 'Document AI', feature: 'Document Q&A', systemPrompt: 'You are a document research assistant. Answer questions strictly grounded in the uploaded document.' },
+  'doc-analysis': { category: 'Document AI', feature: 'Document Analysis', systemPrompt: 'You are an auditor and document analyst. Analyze structure, arguments, methodology, and conclusions.' },
+  'doc-command-execution': { category: 'Document AI', feature: 'Command & Instruction Execution', systemPrompt: 'You are an autonomous document command analyzer and execution engine. Carefully parse the uploaded text/document, detect all commands, prompts, action requests, or operational instructions embedded within it, and execute each one thoroughly step-by-step with structured, high-clarity output.' },
+  'doc-extraction': { category: 'Document AI', feature: 'Document Information Extraction', systemPrompt: 'Extract structured data fields and tables accurately from the uploaded document.' },
+  'doc-comparison': { category: 'Document AI', feature: 'Document Comparison', systemPrompt: 'Compare the documents, highlighting differences, commonalities, and key changes.' },
+
+  // Developer AI
+  'code-explanation': { category: 'Developer AI', feature: 'Code Explanation', systemPrompt: 'You are a senior software engineer. Explain this code thoroughly, detailing logic and flow.' },
+  'code-generation': { category: 'Developer AI', feature: 'Code Generation', systemPrompt: 'You are a principal developer. Write clean, robust, production-ready code with type annotations and error handling.' },
+  'code-review': { category: 'Developer AI', feature: 'Code Review', systemPrompt: 'You are a principal engineer conducting a code review. Audit for security vulnerabilities, bugs, performance, and best practices.' },
+  'bug-analysis': { category: 'Developer AI', feature: 'Bug/Error Analysis', systemPrompt: 'You are a debugging expert. Analyze the error trace, identify root cause, and provide the fix.' },
+  'code-optimization': { category: 'Developer AI', feature: 'Code Optimization', systemPrompt: 'You are a performance optimization specialist. Refactor this code for optimal time and space complexity.' },
+  'sql-generation': { category: 'Developer AI', feature: 'SQL Generation', systemPrompt: 'You are a database architect. Write idiomatic, efficient SQL Server queries and schema definitions.' },
+  'sql-explanation': { category: 'Developer AI', feature: 'SQL Explanation', systemPrompt: 'You are a database performance tuner. Explain the SQL execution flow, joins, and indexing recommendations.' },
+  'doc-generation': { category: 'Developer AI', feature: 'Documentation Generation', systemPrompt: 'You are a technical documentation specialist. Generate clear markdown documentation, API specs, and docstrings.' },
+
+  // Professional AI
+  'resume-analysis': { category: 'Professional AI', feature: 'Resume Analysis', systemPrompt: 'You are a certified executive resume coach. Audit resume for ATS compatibility, quantification, and impact.' },
+  'resume-improvement': { category: 'Professional AI', feature: 'Resume Improvement', systemPrompt: 'Transform bullet points using the XYZ impact formula (Accomplished [X] as measured by [Y], by doing [Z]).' },
+  'cover-letter': { category: 'Professional AI', feature: 'Cover Letter Generation', systemPrompt: 'Craft a compelling, authentic cover letter tailored to the job description and candidate background.' },
+  'email-generation': { category: 'Professional AI', feature: 'Email Generation', systemPrompt: 'Write a persuasive, professionally framed executive email with a clear call to action.' },
+  'report-generation': { category: 'Professional AI', feature: 'Report Generation', systemPrompt: 'Draft an executive business report with executive summary, methodology, findings, and recommendations.' },
+  'meeting-summary': { category: 'Professional AI', feature: 'Meeting Summary', systemPrompt: 'Analyze meeting transcript. Extract: 1. Key Decisions, 2. Discussion Summary, 3. Action Items with owners and deadlines.' },
+  'job-description': { category: 'Professional AI', feature: 'Job Description Analysis', systemPrompt: 'Audit job description. Identify core qualifications, hidden expectations, and candidate profile fit.' },
+
+  // Education AI
+  'topic-explanation': { category: 'Education AI', feature: 'Topic Explanation', systemPrompt: 'You are an inspiring educator. Explain this concept using first principles, intuitive analogies, and real-world examples.' },
+  'study-notes': { category: 'Education AI', feature: 'Study Notes', systemPrompt: 'Generate structured study notes, chapter summaries, key definitions, and revision flash-points.' },
+  'question-generation': { category: 'Education AI', feature: 'Question Generation', systemPrompt: 'Generate conceptual, analytical, and application-based questions to test mastery.' },
+  'mcq-generation': { category: 'Education AI', feature: 'MCQ Generation', systemPrompt: 'Create multiple-choice questions with 4 options, indicating the correct answer and a thorough explanation for each.' },
+  'flashcards': { category: 'Education AI', feature: 'Flashcards', systemPrompt: 'Create a deck of concise front/back flashcards for active recall and spaced repetition.' },
+  'exam-prep': { category: 'Education AI', feature: 'Exam Preparation', systemPrompt: 'Design a comprehensive exam preparation guide with practice problems and marking criteria.' },
+  'material-qa': { category: 'Education AI', feature: 'Q&A from Uploaded Material', systemPrompt: 'Generate a comprehensive quiz and answer key based strictly on the uploaded educational material.' },
+
+  // Custom AI
+  'custom': { category: 'Custom AI', feature: 'Custom AI', systemPrompt: 'You are Claude, an AI assistant built by Anthropic. Fulfill the user task accurately and thoroughly.' }
+};
+
+/**
+ * Execute real Claude AI processing workflow
+ */
+async function processAiTask({
+  userId,
+  taskType = 'custom',
+  prompt,
+  optimizedPrompt = null,
+  optimizationMode = 'Standard',
+  changesSummary = null,
+  fileId = null,
+  runtimeOptions = {}
+}) {
+  const startTime = Date.now();
+  let requestedModel = runtimeOptions.model || DEFAULT_MODEL;
+  // Automatically normalize unavailable/legacy models to working default model
+  if (requestedModel.includes('3-7-sonnet') || requestedModel.includes('3-5-sonnet') || requestedModel.includes('3-opus') || requestedModel.includes('3-5-haiku')) {
+    logger.warn(`Model [${requestedModel}] not supported on this account. Normalizing to default working model [${DEFAULT_MODEL}]`);
+    requestedModel = DEFAULT_MODEL;
+  }
+  let model = requestedModel;
+  const maxOutputTokens = parseInt(runtimeOptions.maxOutputTokens || '1024', 10);
+  const outputFormat = runtimeOptions.outputFormat || 'markdown';
+  const duplicateRemoval = Boolean(runtimeOptions.duplicateContentRemoval);
+  const budgetProtection = runtimeOptions.budgetProtection !== undefined ? Boolean(runtimeOptions.budgetProtection) : true;
+
+  // 1. Fetch File Content if attached
+  let fileText = '';
+  let attachedFile = null;
+  if (fileId) {
+    const fileRes = await db.query(
+      'SELECT file_id, file_name, file_type, extracted_text FROM dbo.files WHERE file_id = @fileId',
+      { fileId }
+    );
+    if (fileRes.recordset.length > 0) {
+      attachedFile = fileRes.recordset[0];
+      fileText = attachedFile.extracted_text || '';
+    }
+  }
+
+  // 2. Resolve prompt to send (use in-file command analysis if prompt omitted)
+  let activePrompt = (optimizedPrompt || prompt || '').trim();
+  if (!activePrompt) {
+    if (fileText) {
+      activePrompt = 'Analyze the uploaded file, extract all commands, directives, tasks, or instructions specified within it, and execute each one step-by-step with thorough results.';
+    } else {
+      throw new Error('A prompt, instruction, or uploaded document is required for AI processing.');
+    }
+  }
+
+  // 3. Construct Full Context Prompt
+  let constructedContent = activePrompt;
+  if (fileText) {
+    constructedContent = `User Prompt / Instructions:
+${activePrompt}
+
+--- ATTACHED DOCUMENT CONTENT (${attachedFile ? attachedFile.file_name : 'Document'}) ---
+${fileText}
+--- END DOCUMENT CONTENT ---`;
+  }
+
+  // 4. Token & Cost Pre-check
+  const estimatedInputTokens = Math.ceil(constructedContent.length / 3.8);
+  const estimatedCostData = await estimateRequestCost(model, estimatedInputTokens, maxOutputTokens);
+  const estimatedCost = estimatedCostData.estimatedTotalCost;
+
+  // 5. Application Budget Safety Check ($5 Safety Budget)
+  const budgetCheck = await checkBudgetSafety(estimatedCost, budgetProtection);
+  if (!budgetCheck.allowed && budgetProtection) {
+    const err = new Error(budgetCheck.message);
+    err.statusCode = 402; // Payment Required / Budget Exceeded
+    throw err;
+  }
+
+  // 6. Create Task record in DB
+  const taskRes = await db.query(
+    `INSERT INTO dbo.tasks (user_id, task_type, status, runtime_options, created_at)
+     VALUES (@userId, @taskType, 'PROCESSING', @runtimeOptions, SYSUTCDATETIME());
+     SELECT SCOPE_IDENTITY() AS task_id;`,
+    {
+      userId,
+      taskType,
+      runtimeOptions: JSON.stringify({
+        model,
+        maxOutputTokens,
+        outputFormat,
+        duplicateRemoval,
+        budgetProtection,
+        optimizationMode
+      })
+    }
+  );
+  const taskId = taskRes.recordset[0].task_id;
+
+  // Link file to task if provided
+  if (fileId) {
+    await db.query('UPDATE dbo.files SET task_id = @taskId WHERE file_id = @fileId', { taskId, fileId });
+  }
+
+  // Record Prompt record in DB
+  await db.query(
+    `INSERT INTO dbo.prompts (task_id, original_prompt, optimized_prompt, optimization_mode, changes_summary, created_at)
+     VALUES (@taskId, @originalPrompt, @optimizedPrompt, @optimizationMode, @changesSummary, SYSUTCDATETIME())`,
+    {
+      taskId,
+      originalPrompt: prompt || activePrompt,
+      optimizedPrompt: optimizedPrompt || prompt || activePrompt,
+      optimizationMode,
+      changesSummary
+    }
+  );
+
+  // Create API Request record in DB
+  const reqRes = await db.query(
+    `INSERT INTO dbo.api_requests (task_id, user_id, model, provider, status, created_at)
+     VALUES (@taskId, @userId, @model, 'anthropic', 'PROCESSING', SYSUTCDATETIME());
+     SELECT SCOPE_IDENTITY() AS request_id;`,
+    { taskId, userId, model }
+  );
+  const requestId = reqRes.recordset[0].request_id;
+
+  // Track executed AI features
+  const taskDefinition = TOOLKIT_TASKS[taskType] || TOOLKIT_TASKS['custom'];
+  const executedFeatures = new Set([taskDefinition.feature]);
+
+  if (optimizationMode && optimizationMode !== 'Standard') {
+    executedFeatures.add('Prompt Optimization');
+  }
+  if (fileId) {
+    executedFeatures.add('File Text Extraction');
+  }
+  if (duplicateRemoval) {
+    executedFeatures.add('Duplicate Content Removal');
+  }
+  if (outputFormat === 'json' || taskType === 'json-generation') {
+    executedFeatures.add('JSON Generation');
+  } else if (outputFormat === 'markdown') {
+    executedFeatures.add('Structured Output');
+  }
+
+  // 7. Execute Claude API Request
+  let responseText = '';
+  let usageTokens = { inputTokens: 0, outputTokens: 0, totalTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 };
+  let processingTimeMs = 0;
+
+  try {
+    const client = getAnthropicClient();
+    let systemInstruction = taskDefinition.systemPrompt;
+
+    if (outputFormat === 'json') {
+      systemInstruction += '\nCRITICAL REQUIREMENT: Respond strictly in valid JSON format without enclosing code fences.';
+    } else if (outputFormat === 'markdown') {
+      systemInstruction += '\nFormat the response using clean, semantic markdown (headings, bold, lists, tables).';
+    }
+
+    let messageResponse;
+    try {
+      messageResponse = await client.messages.create({
+        model,
+        max_tokens: maxOutputTokens,
+        system: systemInstruction,
+        messages: [
+          {
+            role: 'user',
+            content: constructedContent
+          }
+        ]
+      });
+    } catch (modelErr) {
+      if ((modelErr.status === 404 || modelErr.message?.includes('not_found_error')) && model !== DEFAULT_MODEL) {
+        logger.warn(`Model [${model}] returned 404 not found. Automatically retrying with working default model [${DEFAULT_MODEL}]...`);
+        model = DEFAULT_MODEL;
+        messageResponse = await client.messages.create({
+          model,
+          max_tokens: maxOutputTokens,
+          system: systemInstruction,
+          messages: [
+            {
+              role: 'user',
+              content: constructedContent
+            }
+          ]
+        });
+      } else {
+        throw modelErr;
+      }
+    }
+
+    processingTimeMs = Date.now() - startTime;
+
+    // Extract Claude response content
+    if (messageResponse.content && messageResponse.content.length > 0) {
+      responseText = messageResponse.content
+        .filter(c => c.type === 'text')
+        .map(c => c.text)
+        .join('\n');
+    }
+
+    // Extract exact usage from Claude response
+    usageTokens = extractUsageTokens(messageResponse.usage);
+
+  } catch (apiErr) {
+    processingTimeMs = Date.now() - startTime;
+    logger.error(`Claude API error for task ${taskId}:`, apiErr);
+
+    // Record failure in DB
+    await db.query(
+      `UPDATE dbo.tasks SET status = 'FAILED', completed_at = SYSUTCDATETIME() WHERE task_id = @taskId;
+       UPDATE dbo.api_requests SET status = 'FAILED', processing_time_ms = @processingTimeMs, error_message = @errorMsg WHERE request_id = @requestId;`,
+      {
+        taskId,
+        requestId,
+        processingTimeMs,
+        errorMsg: apiErr.message || 'Claude API execution error'
+      }
+    );
+
+    throw apiErr;
+  }
+
+  // 8. Record Usage & Calculate Exact Cost
+  const usageRecord = await recordRequestUsage({
+    requestId,
+    model,
+    inputTokens: usageTokens.inputTokens,
+    outputTokens: usageTokens.outputTokens,
+    cacheCreationTokens: usageTokens.cacheCreationTokens,
+    cacheReadTokens: usageTokens.cacheReadTokens,
+    processingTimeMs,
+    status: 'SUCCESS'
+  });
+
+  // 9. Save Generated Result in DB
+  const resSave = await db.query(
+    `INSERT INTO dbo.generated_results (task_id, request_id, result_content, result_format, created_at)
+     VALUES (@taskId, @requestId, @resultContent, @resultFormat, SYSUTCDATETIME());
+     SELECT SCOPE_IDENTITY() AS result_id;`,
+    {
+      taskId,
+      requestId,
+      resultContent: responseText,
+      resultFormat: outputFormat
+    }
+  );
+  const resultId = resSave.recordset[0].result_id;
+
+  // Save result to file system (results/result_task_<taskId>.<ext>)
+  let resultFilePath = null;
+  try {
+    const ext = outputFormat === 'json' ? 'json' : outputFormat === 'markdown' ? 'md' : 'txt';
+    resultFilePath = path.join(__dirname, '../../results', `result_task_${taskId}.${ext}`);
+    fs.writeFileSync(resultFilePath, responseText, 'utf-8');
+  } catch (fsErr) {
+    logger.warn(`Could not write result file to disk: ${fsErr.message}`);
+  }
+
+  // 10. Persist Executed AI Features into dbo.task_features
+  for (const featName of executedFeatures) {
+    await db.query(
+      `INSERT INTO dbo.task_features (task_id, feature_id)
+       SELECT @taskId, feature_id FROM dbo.ai_features WHERE feature_name = @featName`,
+      { taskId, featName }
+    );
+  }
+
+  // 11. Mark Task Completed
+  await db.query(
+    `UPDATE dbo.tasks SET status = 'COMPLETED', completed_at = SYSUTCDATETIME() WHERE task_id = @taskId`,
+    { taskId }
+  );
+
+  // 12. Audit Log
+  await logger.audit(userId, 'AI_PROCESS_TASK', 'TASK', taskId, {
+    model,
+    taskType,
+    tokens: usageTokens.totalTokens,
+    cost: usageRecord.requestCost
+  });
+
+  // 13. Dual-sync to MongoDB Atlas
+  mongoService.syncTask({
+    taskId,
+    userId,
+    taskType,
+    status: 'COMPLETED',
+    runtimeOptions: { model, maxOutputTokens, outputFormat, optimizationMode, duplicateRemoval, budgetProtection },
+    completedAt: new Date()
+  });
+  mongoService.syncPrompt({
+    taskId,
+    originalPrompt: prompt || activePrompt,
+    optimizedPrompt: optimizedPrompt || prompt || activePrompt,
+    optimizationMode,
+    changesSummary
+  });
+  mongoService.syncApiRequest({
+    requestId,
+    taskId,
+    userId,
+    model,
+    provider: 'anthropic',
+    status: 'SUCCESS',
+    processingTimeMs
+  });
+  mongoService.syncGeneratedResult({
+    resultId,
+    taskId,
+    resultText: responseText,
+    resultFormat: outputFormat,
+    tokenCount: usageTokens.totalTokens,
+    costUsd: usageRecord.requestCost,
+    storagePath: resultFilePath
+  });
+
+  return {
+    taskId,
+    requestId,
+    resultId,
+    taskType,
+    model,
+    result: responseText,
+    resultFormat: outputFormat,
+    usage: {
+      inputTokens: usageTokens.inputTokens,
+      outputTokens: usageTokens.outputTokens,
+      totalTokens: usageTokens.totalTokens,
+      cacheCreationTokens: usageTokens.cacheCreationTokens,
+      cacheReadTokens: usageTokens.cacheReadTokens
+    },
+    cost: {
+      requestCost: usageRecord.requestCost,
+      cumulativeCost: usageRecord.cumulativeCost,
+      remainingBudget: usageRecord.remainingBudget
+    },
+    processingTimeMs,
+    featuresUsed: Array.from(executedFeatures),
+    completedAt: new Date().toISOString()
+  };
+}
+
+module.exports = {
+  processAiTask,
+  TOOLKIT_TASKS
+};

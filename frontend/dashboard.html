@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - Claude AI Enterprise Platform</title>
+  <meta name="description" content="AI Processing, Prompt Optimization, Token Tracking and Cost Monitoring Dashboard">
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/dashboard.css">
+  <!-- Chart.js CDN for lightweight responsive charting -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <aside class="app-sidebar">
+      <div class="sidebar-header">
+        <div class="brand-icon">⚡</div>
+        <div class="brand-text">
+          <h1>Claude AI</h1>
+          <span>Enterprise Platform</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section-title">Core Platform</div>
+        <a href="dashboard.html" class="nav-item active">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 9l-5 5-4-4-3 3"/></svg>
+          <span>Dashboard</span>
+        </a>
+        <a href="processor.html" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="10"/></svg>
+          <span>AI Studio</span>
+        </a>
+
+        <div class="nav-section-title">History & Data</div>
+        <a href="usage.html" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span>Request History</span>
+        </a>
+        <a href="prompts.html" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>Prompt History</span>
+        </a>
+        <a href="files.html" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span>File Manager</span>
+        </a>
+        <a href="tasks.html" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          <span>Tasks</span>
+        </a>
+        <a href="results.html" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          <span>Results</span>
+        </a>
+        <a href="exports.html" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Export Center</span>
+        </a>
+
+        <div class="nav-section-title admin-only">Administration</div>
+        <a href="settings.html" class="nav-item admin-only">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Budget & Settings</span>
+        </a>
+      </nav>
+
+      <!-- Sidebar Footer -->
+      <div class="sidebar-footer">
+        <div class="budget-mini-widget">
+          <div class="budget-mini-header">
+            <span>Safety Budget</span>
+            <span id="sidebar-budget-spent">$0.00</span>
+          </div>
+          <div class="budget-mini-bar">
+            <div id="sidebar-budget-progress" class="budget-mini-progress" style="width: 0%;"></div>
+          </div>
+          <div class="budget-mini-text">
+            <span>$5.00 limit</span>
+            <span id="sidebar-budget-remaining">$5.00 left</span>
+          </div>
+        </div>
+
+        <div class="user-profile-badge">
+          <div id="sidebar-user-avatar" class="user-avatar">U</div>
+          <div class="user-info">
+            <div id="sidebar-user-name" class="user-name">Loading...</div>
+            <span id="sidebar-user-role" class="user-role-badge">USER</span>
+          </div>
+          <button id="btn-logout" class="btn btn-secondary btn-icon" title="Sign Out">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="app-main">
+      <header class="app-header">
+        <div class="header-title">
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--accent-cyan); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px;">
+            <span>Claude AI Platform</span>
+            <span style="color: var(--text-dim);">/</span>
+            <span style="color: #fff;">Executive Telemetry</span>
+          </div>
+          <h2>Executive Intelligence Dashboard</h2>
+          <p>Real-time Claude Token Consumption, Cost Tracking & Budget Guardrails</p>
+        </div>
+        <div class="header-actions">
+          <div class="api-status-pill">
+            <span class="status-dot"></span>
+            <span>Claude Live • MS SQL Connected</span>
+          </div>
+          <button id="btn-dashboard-refresh" class="btn btn-secondary btn-sm" title="Refresh Live Metrics">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            <span>Refresh</span>
+          </button>
+          <a href="processor.html" class="btn btn-primary btn-sm">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <span>+ New AI Task</span>
+          </a>
+        </div>
+      </header>
+
+      <div class="content-body">
+        <!-- Sub-Navigation Tab Bar (Matching UI Design) -->
+        <div class="sub-nav-tabs-bar">
+          <button class="sub-nav-tab active" data-tab="analytics" id="tab-btn-analytics">
+            <span class="sub-nav-icon">📊</span>
+            <span class="sub-nav-label">Analytics & Trends</span>
+          </button>
+          <button class="sub-nav-tab" data-tab="history" id="tab-btn-history">
+            <span class="sub-nav-icon">📜</span>
+            <span class="sub-nav-label">Request History</span>
+          </button>
+          <button class="sub-nav-tab" data-tab="users" id="tab-btn-users">
+            <span class="sub-nav-icon">👥</span>
+            <span class="sub-nav-label">Usage by User</span>
+          </button>
+          <button class="sub-nav-tab" data-tab="features" id="tab-btn-features">
+            <span class="sub-nav-icon">🏷️</span>
+            <span class="sub-nav-label">Usage by Feature</span>
+          </button>
+          <button class="sub-nav-tab" data-tab="files" id="tab-btn-files">
+            <span class="sub-nav-icon">📁</span>
+            <span class="sub-nav-label">File Processing ( <span id="file-tab-counter">0</span> )</span>
+          </button>
+          <button class="sub-nav-tab" data-tab="downloads" id="tab-btn-downloads">
+            <span class="sub-nav-icon">📥</span>
+            <span class="sub-nav-label">Download Tracking</span>
+          </button>
+        </div>
+
+        <!-- PANEL 1: Analytics & Trends -->
+        <div id="panel-analytics" class="tab-content-panel active">
+          <!-- Filter Toolbar -->
+          <div class="filter-toolbar">
+            <div class="filter-group">
+              <span style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: var(--text-dim); text-transform: uppercase;">TIMEFRAME:</span>
+              <div class="filter-btn-group">
+                <button class="filter-tab-btn" data-range="today">Today</button>
+                <button class="filter-tab-btn active" data-range="7days">Last 7 Days</button>
+                <button class="filter-tab-btn" data-range="30days">Last 30 Days</button>
+                <button class="filter-tab-btn" data-range="all">All Time</button>
+              </div>
+            </div>
+            <div>
+              <span class="badge badge-indigo">● Auto-Refresh: Every 15s</span>
+            </div>
+          </div>
+
+          <!-- $5 Application Safety Budget Banner -->
+          <div class="budget-banner-card">
+            <div class="budget-banner-top">
+              <div class="budget-banner-info">
+                <div class="budget-icon-shield">🛡️</div>
+                <div>
+                  <h3>
+                    <span>Application Safety Budget Protection</span>
+                    <span id="budget-status-badge" class="badge badge-success">Safe to Process</span>
+                  </h3>
+                  <p>Strict local expense limit preventing API runaway testing costs ($5.00 safety cap)</p>
+                </div>
+              </div>
+              <div class="budget-banner-stats">
+                <div class="budget-stat-item">
+                  <span class="budget-stat-label">Budget Limit</span>
+                  <span id="budget-banner-total" class="budget-stat-value">$5.00</span>
+                </div>
+                <div class="budget-stat-item">
+                  <span class="budget-stat-label">Tracked Spend</span>
+                  <span id="budget-banner-spent" class="budget-stat-value" style="color: #818cf8;">$0.000000</span>
+                </div>
+                <div class="budget-stat-item">
+                  <span class="budget-stat-label">Remaining</span>
+                  <span id="budget-banner-remaining" class="budget-stat-value" style="color: #34d399;">$5.000000</span>
+                </div>
+                <div class="budget-stat-item">
+                  <span class="budget-stat-label">Utilized</span>
+                  <span id="budget-banner-pct" class="budget-stat-value" style="color: #c084fc;">0.0%</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="budget-progress-track">
+              <div id="budget-banner-fill" class="budget-progress-fill" style="width: 0%;"></div>
+            </div>
+
+            <div class="budget-disclaimer">
+              <span class="budget-disclaimer-icon">ℹ️</span>
+              <span>The $5.00 safety limit is a local application guardrail to protect testing spend; it does not read or alter your private Anthropic console billing account.</span>
+            </div>
+          </div>
+
+          <!-- KPI Cards Grid -->
+          <div class="kpi-grid">
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">Total Tasks</span>
+                <div class="kpi-icon-wrapper">📋</div>
+              </div>
+              <div id="kpi-total-tasks" class="kpi-value">0</div>
+              <div class="kpi-subtext">
+                <span class="kpi-trend-pill positive">✓ Completed</span>
+                <span>AI Operations</span>
+              </div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">API Requests</span>
+                <div class="kpi-icon-wrapper cyan">⚡</div>
+              </div>
+              <div id="kpi-total-requests" class="kpi-value">0</div>
+              <div class="kpi-subtext">
+                <span class="kpi-trend-pill info">● Live Telemetry</span>
+                <span>Claude Calls</span>
+              </div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">Input Tokens</span>
+                <div class="kpi-icon-wrapper amber">📥</div>
+              </div>
+              <div id="kpi-input-tokens" class="kpi-value">0</div>
+              <div class="kpi-subtext">
+                <span class="kpi-trend-pill">Prompts & Context</span>
+              </div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">Output Tokens</span>
+                <div class="kpi-icon-wrapper emerald">📤</div>
+              </div>
+              <div id="kpi-output-tokens" class="kpi-value">0</div>
+              <div class="kpi-subtext">
+                <span class="kpi-trend-pill positive">Generated Text</span>
+              </div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">Total Tokens</span>
+                <div class="kpi-icon-wrapper">🔢</div>
+              </div>
+              <div id="kpi-total-tokens" class="kpi-value">0</div>
+              <div class="kpi-subtext">
+                <span class="kpi-trend-pill info">Cumulative</span>
+              </div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">Total Cost</span>
+                <div class="kpi-icon-wrapper emerald">💵</div>
+              </div>
+              <div id="kpi-total-cost" class="kpi-value" style="color: #34d399;">$0.000000</div>
+              <div class="kpi-subtext">
+                <span class="kpi-trend-pill positive">Exact Spend</span>
+              </div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-card-header">
+                <span class="kpi-title">Avg Cost / Req</span>
+                <div class="kpi-icon-wrapper cyan">📊</div>
+              </div>
+              <div id="kpi-avg-cost" class="kpi-value" style="color: #38bdf8;">$0.000000</div>
+              <div class="kpi-subtext">
+                <span class="kpi-trend-pill info">Per Request</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Charts Grid -->
+          <div class="charts-grid">
+            <div class="chart-card">
+              <div class="chart-card-header">
+                <span class="chart-card-title">Cost Over Time (USD)</span>
+                <span class="chart-badge-tag">USD Telemetry</span>
+              </div>
+              <div class="chart-canvas-wrapper">
+                <canvas id="chart-cost-timeline"></canvas>
+              </div>
+            </div>
+
+            <div class="chart-card">
+              <div class="chart-card-header">
+                <span class="chart-card-title">Input vs Output Tokens Consumed</span>
+                <span class="chart-badge-tag">Volume Distribution</span>
+              </div>
+              <div class="chart-canvas-wrapper">
+                <canvas id="chart-tokens-timeline"></canvas>
+              </div>
+            </div>
+
+            <div class="chart-card">
+              <div class="chart-card-header">
+                <span class="chart-card-title">Model Usage Distribution</span>
+                <span class="chart-badge-tag">Active Models</span>
+              </div>
+              <div class="chart-canvas-wrapper">
+                <canvas id="chart-model-usage"></canvas>
+              </div>
+            </div>
+
+            <div class="chart-card">
+              <div class="chart-card-header">
+                <span class="chart-card-title">Task Types Executed</span>
+                <span class="chart-badge-tag">Workload</span>
+              </div>
+              <div class="chart-canvas-wrapper">
+                <canvas id="chart-task-usage"></canvas>
+              </div>
+            </div>
+
+            <div class="chart-card" style="grid-column: 1 / -1;">
+              <div class="chart-card-header">
+                <span class="chart-card-title">AI Capabilities Actually Executed (Tracking Only)</span>
+                <span class="chart-badge-tag">45 Capabilities Defined</span>
+              </div>
+              <div class="chart-canvas-wrapper" style="height: 240px;">
+                <canvas id="chart-feature-usage"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PANEL 2: Request History -->
+        <div id="panel-history" class="tab-content-panel">
+          <div class="table-card">
+            <div class="table-header-bar">
+              <div class="table-search-box">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" id="dashboard-history-search" placeholder="Search prompts or tasks...">
+              </div>
+
+              <div class="table-filter-controls">
+                <select id="dashboard-history-date" class="form-select" style="padding: 7px 12px; font-size: 13px; width: auto;">
+                  <option value="all">All Dates</option>
+                  <option value="today">Today</option>
+                  <option value="yesterday">Yesterday</option>
+                  <option value="7days">Last 7 Days</option>
+                  <option value="30days">Last 30 Days</option>
+                </select>
+
+                <select id="dashboard-history-model" class="form-select" style="padding: 7px 12px; font-size: 13px; width: auto;">
+                  <option value="">All Models</option>
+                  <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+                  <option value="claude-opus-4-6">Claude Opus 4.6</option>
+                  <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
+                  <option value="claude-sonnet-4-5-20250929">Claude Sonnet 4.5</option>
+                </select>
+
+                <a href="/api/exports/usage/excel" class="btn btn-secondary btn-sm" id="btn-export-history-xlsx">
+                  <span>Export XLSX</span>
+                </a>
+              </div>
+            </div>
+
+            <div class="data-table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Request ID</th>
+                    <th>Date & Time</th>
+                    <th>Task Type</th>
+                    <th>Model</th>
+                    <th>Input Tokens</th>
+                    <th>Output Tokens</th>
+                    <th>Total Tokens</th>
+                    <th>Cost (USD)</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="dashboard-history-tbody">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+
+            <div class="table-footer-bar">
+              <span>Click any request row to view complete query inspection details</span>
+              <div id="dashboard-history-pagination" class="pagination-controls"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PANEL 3: Usage by User -->
+        <div id="panel-users" class="tab-content-panel">
+          <div class="table-card">
+            <div class="table-header-bar">
+              <div>
+                <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 2px;">User Consumption Breakdown</h3>
+                <p style="font-size: 12px; color: var(--text-muted); margin: 0;">Aggregate tokens, API calls, and expenditure grouped by user account</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" id="btn-refresh-users">
+                <span>↻ Refresh</span>
+              </button>
+            </div>
+
+            <div class="data-table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>User ID</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Total Requests</th>
+                    <th>Input Tokens</th>
+                    <th>Output Tokens</th>
+                    <th>Total Tokens</th>
+                    <th>Total Spend (USD)</th>
+                    <th>Last Active</th>
+                  </tr>
+                </thead>
+                <tbody id="dashboard-users-tbody">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- PANEL 4: Usage by Feature -->
+        <div id="panel-features" class="tab-content-panel">
+          <div class="table-card">
+            <div class="table-header-bar">
+              <div>
+                <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 2px;">AI Features & Capabilities Tracking</h3>
+                <p style="font-size: 12px; color: var(--text-muted); margin: 0;">Usage and cost consumption across all registered enterprise AI capabilities</p>
+              </div>
+              <div class="table-filter-controls">
+                <select id="dashboard-features-filter" class="form-select" style="padding: 7px 12px; font-size: 13px; width: auto;">
+                  <option value="all">All Categories</option>
+                  <option value="Core Text">Core Text</option>
+                  <option value="Advanced Document">Advanced Document</option>
+                  <option value="Analysis">Analysis</option>
+                  <option value="Optimization">Optimization</option>
+                  <option value="Export">Export</option>
+                  <option value="Security">Security</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="data-table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Feature ID</th>
+                    <th>Feature Name</th>
+                    <th>Category</th>
+                    <th>Description</th>
+                    <th>Executions</th>
+                    <th>Total Tokens</th>
+                    <th>Total Cost (USD)</th>
+                  </tr>
+                </thead>
+                <tbody id="dashboard-features-tbody">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- PANEL 5: File Processing -->
+        <div id="panel-files" class="tab-content-panel">
+          <div class="table-card">
+            <div class="table-header-bar">
+              <div>
+                <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 2px;">Processed File Documents</h3>
+                <p style="font-size: 12px; color: var(--text-muted); margin: 0;">Uploaded documents extracted for AI prompt enhancement and analysis</p>
+              </div>
+              <div class="table-filter-controls">
+                <a href="processor.html" class="btn btn-primary btn-sm">+ Upload & Process File</a>
+              </div>
+            </div>
+
+            <div class="data-table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>File ID</th>
+                    <th>Filename</th>
+                    <th>Format</th>
+                    <th>Size</th>
+                    <th>Uploaded Date</th>
+                    <th>Extracted Text Preview</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="dashboard-files-tbody">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+
+            <div class="table-footer-bar">
+              <span>Supported formats: TXT, PDF, DOCX, CSV, JSON, Markdown</span>
+              <div id="dashboard-files-pagination" class="pagination-controls"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PANEL 6: Download Tracking -->
+        <div id="panel-downloads" class="tab-content-panel">
+          <!-- Quick Export Action Cards -->
+          <div class="exports-grid" style="margin-bottom: 28px;">
+            <div class="export-card">
+              <div class="export-card-header">
+                <div class="export-card-icon">📊</div>
+                <div class="export-card-title">10-Sheet Master Excel Report</div>
+              </div>
+              <div class="export-card-desc">
+                Complete multi-tab workbook with Summary KPIs, Requests, Costs, Users, Tasks, Prompts, Files, Features, Model Pricing, and Audit logs.
+              </div>
+              <div class="export-card-actions">
+                <a href="/api/exports/master/excel" class="btn btn-primary btn-sm" id="btn-export-master-dash">
+                  <span>Download Master (.xlsx)</span>
+                </a>
+              </div>
+            </div>
+
+            <div class="export-card">
+              <div class="export-card-header">
+                <div class="export-card-icon">⚡</div>
+                <div class="export-card-title">Per-Query Usage Data</div>
+              </div>
+              <div class="export-card-desc">
+                Granular token consumption, latency, and exact calculated costs for each Claude API request.
+              </div>
+              <div class="export-card-actions">
+                <a href="/api/exports/usage/excel" class="btn btn-secondary btn-sm" id="btn-dl-usage-xlsx"><span>Excel (.xlsx)</span></a>
+                <a href="/api/exports/usage/json" class="btn btn-secondary btn-sm" id="btn-dl-usage-json"><span>JSON</span></a>
+              </div>
+            </div>
+
+            <div class="export-card">
+              <div class="export-card-header">
+                <div class="export-card-icon">💡</div>
+                <div class="export-card-title">Prompt Optimization History</div>
+              </div>
+              <div class="export-card-desc">
+                Original vs optimized prompt metrics, token compression savings, and technique details.
+              </div>
+              <div class="export-card-actions">
+                <a href="/api/exports/prompts/excel" class="btn btn-secondary btn-sm" id="btn-dl-prompts-xlsx"><span>Excel (.xlsx)</span></a>
+                <a href="/api/exports/prompts/json" class="btn btn-secondary btn-sm" id="btn-dl-prompts-json"><span>JSON</span></a>
+              </div>
+            </div>
+
+            <div class="export-card">
+              <div class="export-card-header">
+                <div class="export-card-icon">🛡️</div>
+                <div class="export-card-title">Audit & Compliance Logs</div>
+              </div>
+              <div class="export-card-desc">
+                Complete audit trail of user logins, safety budget events, and file uploads.
+              </div>
+              <div class="export-card-actions">
+                <a href="/api/exports/audit/json" class="btn btn-secondary btn-sm" id="btn-dl-audit-json"><span>Download JSON</span></a>
+              </div>
+            </div>
+          </div>
+
+          <!-- Downloadable Results History -->
+          <div class="table-card">
+            <div class="table-header-bar">
+              <div>
+                <h3 style="font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 2px;">Generated AI Results & Artifacts</h3>
+                <p style="font-size: 12px; color: var(--text-muted); margin: 0;">Instant download in Markdown, Plain Text, or structured JSON</p>
+              </div>
+            </div>
+            <div class="data-table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Task ID</th>
+                    <th>Task Type</th>
+                    <th>Model</th>
+                    <th>Generated At</th>
+                    <th>Tokens</th>
+                    <th>Cost (USD)</th>
+                    <th>Download Formats</th>
+                  </tr>
+                </thead>
+                <tbody id="dashboard-downloads-tbody">
+                  <!-- Populated dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Detailed Query Modal -->
+  <div id="request-modal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 style="font-size: 16px; font-weight: 700; color: #fff;">Query Inspection Details <span id="modal-req-id" class="mono-cell" style="color: var(--accent-primary);"></span></h3>
+        <button type="button" id="modal-close-btn" class="btn btn-secondary btn-icon">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px;">
+          <div><span style="font-size: 11px; text-transform: uppercase; color: var(--text-dim); display: block;">User</span><strong id="modal-user-name" style="font-size: 13px;"></strong></div>
+          <div><span style="font-size: 11px; text-transform: uppercase; color: var(--text-dim); display: block;">Timestamp (UTC)</span><span id="modal-date" style="font-size: 13px;"></span></div>
+          <div><span style="font-size: 11px; text-transform: uppercase; color: var(--text-dim); display: block;">AI Task Service</span><span id="modal-task-type" class="badge badge-indigo"></span></div>
+          <div><span style="font-size: 11px; text-transform: uppercase; color: var(--text-dim); display: block;">Model</span><span id="modal-model" class="mono-cell" style="font-size: 13px;"></span></div>
+          <div><span style="font-size: 11px; text-transform: uppercase; color: var(--text-dim); display: block;">Tokens (In / Out / Total)</span><span style="font-size: 13px;"><span id="modal-input-tokens">0</span> in / <span id="modal-output-tokens">0</span> out (<strong id="modal-total-tokens">0</strong> total)</span></div>
+          <div><span style="font-size: 11px; text-transform: uppercase; color: var(--text-dim); display: block;">Request Cost / Latency</span><span style="font-size: 13px; color: #34d399; font-weight: 700;" id="modal-req-cost">$0.00</span> (<span id="modal-latency">0ms</span>)</div>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <label class="form-label" style="font-size: 11px;">AI CAPABILITIES ACTUALLY EXECUTED</label>
+          <div id="modal-features-list" style="display: flex; gap: 6px; flex-wrap: wrap;"></div>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label class="form-label" style="font-size: 11px; margin: 0;">ORIGINAL PROMPT</label>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-orig-prompt" style="padding: 2px 10px; font-size: 11px;">📋 Copy</button>
+          </div>
+          <div id="modal-orig-prompt" class="diff-col-content" style="max-height: 120px; overflow-y: auto;"></div>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label class="form-label" style="font-size: 11px; margin: 0;">OPTIMIZED PROMPT</label>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-opt-prompt" style="padding: 2px 10px; font-size: 11px;">📋 Copy</button>
+          </div>
+          <div id="modal-opt-prompt" class="diff-col-content" style="max-height: 120px; overflow-y: auto;"></div>
+        </div>
+
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label class="form-label" style="font-size: 11px; margin: 0;">CLAUDE GENERATED RESULT</label>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-result" style="padding: 2px 10px; font-size: 11px;">📋 Copy Result</button>
+          </div>
+          <div id="modal-result" class="diff-col-content" style="max-height: 180px; overflow-y: auto; white-space: pre-wrap;"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('request-modal').classList.remove('active')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- File Preview Modal -->
+  <div id="file-preview-modal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="preview-file-name" style="font-size: 16px; font-weight: 700; color: #fff;">File Content Preview</h3>
+        <button type="button" id="file-modal-close-btn" class="btn btn-secondary btn-icon">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-file-text" style="padding: 3px 10px; font-size: 11px;">📋 Copy Extracted Text</button>
+        </div>
+        <div id="preview-file-content" class="diff-col-content" style="max-height: 400px; overflow-y: auto;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('file-preview-modal').classList.remove('active')">Close</button>
+      </div>
+    </div>
+  </div>
+    </main>
+  </div>
+
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="js/api.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/auth.js"></script>
+</body>
+</html>

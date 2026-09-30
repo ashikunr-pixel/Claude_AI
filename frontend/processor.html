@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Studio - Claude AI Enterprise Platform</title>
+  <meta name="description" content="AI File Processing, Toolkit, and Prompt Optimization Studio">
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/processor.css">
+</head>
+<body>
+
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <aside class="app-sidebar">
+      <div class="sidebar-header">
+        <div class="brand-icon">⚡</div>
+        <div class="brand-text">
+          <h1>Claude AI</h1>
+          <span>Enterprise Platform</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section-title">Core Platform</div>
+        <a href="dashboard.html" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 9l-5 5-4-4-3 3"/></svg>
+          <span>Dashboard</span>
+        </a>
+        <a href="processor.html" class="nav-item active">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="10"/></svg>
+          <span>AI Studio</span>
+        </a>
+
+        <div class="nav-section-title">History & Data</div>
+        <a href="usage.html" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span>Request History</span>
+        </a>
+        <a href="prompts.html" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>Prompt History</span>
+        </a>
+        <a href="files.html" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span>File Manager</span>
+        </a>
+        <a href="tasks.html" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          <span>Tasks</span>
+        </a>
+        <a href="results.html" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          <span>Results</span>
+        </a>
+        <a href="exports.html" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Export Center</span>
+        </a>
+
+        <div class="nav-section-title admin-only">Administration</div>
+        <a href="settings.html" class="nav-item admin-only">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Budget & Settings</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="budget-mini-widget">
+          <div class="budget-mini-header">
+            <span>Safety Budget</span>
+            <span id="sidebar-budget-spent">$0.00</span>
+          </div>
+          <div class="budget-mini-bar">
+            <div id="sidebar-budget-progress" class="budget-mini-progress" style="width: 0%;"></div>
+          </div>
+          <div class="budget-mini-text">
+            <span>$5.00 limit</span>
+            <span id="sidebar-budget-remaining">$5.00 left</span>
+          </div>
+        </div>
+
+        <div class="user-profile-badge">
+          <div id="sidebar-user-avatar" class="user-avatar">U</div>
+          <div class="user-info">
+            <div id="sidebar-user-name" class="user-name">Loading...</div>
+            <span id="sidebar-user-role" class="user-role-badge">USER</span>
+          </div>
+          <button id="btn-logout" class="btn btn-secondary btn-icon" title="Sign Out">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="app-main">
+      <header class="app-header">
+        <div class="header-title">
+          <h2>AI Processing Studio</h2>
+          <p>Prompt Engineering, Document Analysis & Claude API Execution</p>
+        </div>
+        <div class="header-actions">
+          <span class="badge badge-success">API Status: Ready</span>
+        </div>
+      </header>
+
+      <div class="content-body">
+        <!-- Visual Stepper Progress Bar (Section 6) -->
+        <div class="stepper-flow">
+          <div class="step-item" data-step="Uploading"><div class="step-circle">1</div><span>Uploading</span></div>
+          <div class="step-item" data-step="Extracting"><div class="step-circle">2</div><span>Extracting</span></div>
+          <div class="step-item" data-step="Cleaning"><div class="step-circle">3</div><span>Cleaning</span></div>
+          <div class="step-item" data-step="Optimizing"><div class="step-circle">4</div><span>Optimizing</span></div>
+          <div class="step-item active" data-step="Checking Budget"><div class="step-circle">5</div><span>Checking Budget</span></div>
+          <div class="step-item" data-step="Processing"><div class="step-circle">6</div><span>Processing</span></div>
+          <div class="step-item" data-step="Recording Usage"><div class="step-circle">7</div><span>Recording Usage</span></div>
+          <div class="step-item" data-step="Completed"><div class="step-circle">8</div><span>Completed</span></div>
+        </div>
+
+        <div class="processor-layout">
+          <!-- Left Column: Input, Toolkit, and Options -->
+          <div class="processor-left-col">
+            <!-- AI Toolkit Category Tabs (Section 4) -->
+            <div class="glass-card" style="margin-bottom: 24px;">
+              <label class="form-label" style="margin-bottom: 12px;">SELECT AI CAPABILITY DOMAIN</label>
+              <div id="toolkit-tabs" class="toolkit-tabs"></div>
+              <div id="task-chips-grid" class="task-chips-grid"></div>
+            </div>
+
+            <!-- Prompt & Optimization Card (Section 7, 8, 9) -->
+            <div class="glass-card" style="margin-bottom: 24px;">
+              <div class="optimizer-header">
+                <label class="form-label" for="processor-prompt">PROMPT / INSTRUCTIONS</label>
+                <div class="mode-pills">
+                  <button type="button" class="mode-pill" data-mode="Standard">Standard</button>
+                  <button type="button" class="mode-pill active" data-mode="Optimized">Optimized</button>
+                  <button type="button" class="mode-pill" data-mode="Maximum Efficiency">Max Efficiency</button>
+                </div>
+              </div>
+
+              <textarea id="processor-prompt" class="form-textarea" placeholder="Enter your prompt, query, or instruction for Claude here..." rows="4"></textarea>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
+                <span style="font-size: 11px; color: var(--text-dim);">Optimization rewrites prompts for clarity or token reduction.</span>
+                <button type="button" id="btn-optimize-prompt" class="btn btn-outline btn-sm">✨ Optimize Prompt</button>
+              </div>
+
+              <!-- Prompt Diff Comparison Box (Section 8) -->
+              <div id="prompt-diff-box" class="prompt-diff-box" style="display: none;">
+                <div>
+                  <div class="diff-col-header">Original Prompt</div>
+                  <div id="diff-original-content" class="diff-col-content"></div>
+                </div>
+                <div>
+                  <div class="diff-col-header">Optimized Prompt (Claude Engine)</div>
+                  <div id="diff-optimized-content" class="diff-col-content optimized"></div>
+                </div>
+                <div class="diff-summary-row">
+                  <span id="diff-changes-summary">Changes: Structural role framing and formatting instructions added.</span>
+                  <span id="diff-token-change" class="mono-cell" style="color: var(--accent-cyan);">Token Diff: 0</span>
+                </div>
+                <div class="diff-actions-row">
+                  <button type="button" id="btn-use-original" class="btn btn-secondary btn-sm">Use Original</button>
+                  <button type="button" id="btn-edit-optimized" class="btn btn-secondary btn-sm">Edit Optimized</button>
+                  <button type="button" id="btn-use-optimized" class="btn btn-primary btn-sm">Use Optimized</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Modular File Upload Dropzone (Section 5) -->
+            <div class="glass-card" style="margin-bottom: 24px;">
+              <label class="form-label">DOCUMENT / FILE ATTACHMENT (OPTIONAL)</label>
+              
+              <div id="file-dropzone" class="file-dropzone">
+                <input type="file" id="file-input" accept=".txt,.pdf,.docx,.csv,.json,.md">
+                <div class="dropzone-icon">📁</div>
+                <div class="dropzone-title">Click to browse or drag file here</div>
+                <div class="dropzone-subtext">Supported formats: TXT, PDF, DOCX, CSV, JSON, Markdown (max 15MB)</div>
+              </div>
+
+              <!-- Attached File Preview Pill -->
+              <div id="attached-file-pill" class="attached-file-pill" style="display: none; flex-direction: column; gap: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                  <div class="attached-file-info">
+                    <span>📄</span>
+                    <strong id="attached-file-name">document.pdf</strong>
+                    <span id="attached-file-chars" class="badge badge-indigo">1,240 chars</span>
+                  </div>
+                  <button type="button" id="btn-remove-file" class="btn btn-secondary btn-sm">Remove File</button>
+                </div>
+
+                <!-- Quick In-File Action Presets -->
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px; width: 100%;">
+                  <button type="button" class="btn btn-primary btn-sm" id="btn-preset-exec-cmds" style="font-size: 11px;">⚡ Execute Commands in File</button>
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-preset-summarize" style="font-size: 11px;">📑 Summarize</button>
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-preset-extract" style="font-size: 11px;">🔍 Extract Tasks & Data</button>
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-preset-script" style="font-size: 11px;">💻 CLI / Script Audit</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Runtime & Task Options (Section 10) -->
+            <div class="glass-card" style="margin-bottom: 24px;">
+              <label class="form-label" style="margin-bottom: 16px;">RUNTIME & EXECUTION OPTIONS</label>
+              
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                  <label class="form-label" for="opt-model">Claude Model</label>
+                  <select id="opt-model" class="form-select"></select>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="opt-output-format">Output Format</label>
+                  <select id="opt-output-format" class="form-select">
+                    <option value="markdown" selected>Markdown (Rich Formatted)</option>
+                    <option value="text">Plain Text</option>
+                    <option value="json">Structured JSON</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="opt-max-tokens">Max Output Tokens</label>
+                  <input type="number" id="opt-max-tokens" class="form-input" value="1024" min="100" max="4096" step="64">
+                </div>
+
+                <div class="form-group" style="display: flex; flex-direction: column; justify-content: center;">
+                  <label class="form-label" style="margin-bottom: 10px;">Context Optimizations</label>
+                  <div style="display: flex; gap: 20px; align-items: center;">
+                    <label style="font-size: 13px; display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                      <input type="checkbox" id="opt-dedup" checked>
+                      <span>Deduplicate Content</span>
+                    </label>
+                    <label style="font-size: 13px; display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                      <input type="checkbox" id="opt-budget-protection" checked>
+                      <span>Hard Budget Stop</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pre-Flight Budget Safety Pre-Check (Section 11) -->
+            <div class="precheck-banner">
+              <div class="precheck-item">
+                <span class="precheck-label">Estimated Tokens</span>
+                <span id="precheck-est-tokens" class="precheck-val">~0</span>
+              </div>
+              <div class="precheck-item">
+                <span class="precheck-label">Estimated Cost</span>
+                <span id="precheck-est-cost" class="precheck-val" style="color: #818cf8;">$0.000000</span>
+              </div>
+              <div class="precheck-item">
+                <span class="precheck-label">Remaining Safety Budget</span>
+                <span id="precheck-rem-budget" class="precheck-val" style="color: #34d399;">$5.0000</span>
+              </div>
+              <div>
+                <span id="precheck-status-badge" class="badge badge-success">SAFE TO PROCESS</span>
+              </div>
+            </div>
+
+            <button type="button" id="btn-start-processing" class="btn btn-primary" style="width: 100%; padding: 14px; font-size: 16px;">
+              🚀 START PROCESSING
+            </button>
+          </div>
+
+          <!-- Right Column: Live Output & Result Viewer (Section 20) -->
+          <div class="processor-right-col">
+            <div class="glass-card result-display-card">
+              <div class="result-toolbar">
+                <label class="form-label" style="margin: 0;">AI RESULT VIEWER</label>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                  <button type="button" id="btn-copy-result" class="btn btn-secondary btn-sm" title="Copy Text">📋 Copy</button>
+                  <button type="button" id="btn-dl-txt" class="btn btn-secondary btn-sm">TXT</button>
+                  <button type="button" id="btn-dl-md" class="btn btn-secondary btn-sm">MD</button>
+                  <button type="button" id="btn-dl-json" class="btn btn-secondary btn-sm">JSON</button>
+                  <button type="button" id="btn-dl-excel" class="btn btn-outline btn-sm">Excel (.xlsx)</button>
+                </div>
+              </div>
+
+              <div id="result-content-box" class="result-content-box">
+                <div style="height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-dim); text-align: center;">
+                  <div style="font-size: 40px; margin-bottom: 12px;">⚡</div>
+                  <p style="font-size: 14px; font-weight: 500;">Claude Response Output</p>
+                  <p style="font-size: 12px; max-width: 320px; margin-top: 6px;">Select an AI capability, enter instructions or upload a file, and click Start Processing.</p>
+                </div>
+              </div>
+
+              <div id="result-metrics-bar" class="result-metrics-bar" style="display: none;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="js/api.js"></script>
+  <script src="js/processor.js"></script>
+  <script src="js/auth.js"></script>
+</body>
+</html>

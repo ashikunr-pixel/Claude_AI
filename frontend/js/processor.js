@@ -1,0 +1,642 @@
+/**
+ * Claude AI Platform - AI Processing Studio Controller
+ */
+
+let selectedCategory = 'Text AI';
+let selectedTaskType = 'summarization';
+let attachedFileId = null;
+let attachedFileText = '';
+let attachedFileName = '';
+let optimizedPromptData = null;
+let currentOptimizationMode = 'Optimized';
+let currentActivePrompt = '';
+
+const TOOLKIT_CATEGORIES = {
+  'Text AI': [
+    { type: 'ai-chat', title: 'AI Chat', desc: 'Conversational assistant' },
+    { type: 'text-generation', title: 'Text Generation', desc: 'High-quality content & narrative' },
+    { type: 'summarization', title: 'Summarization', desc: 'Executive summary & key takeaways' },
+    { type: 'rewriting', title: 'Rewriting', desc: 'Tone, style, and flow refinement' },
+    { type: 'grammar', title: 'Grammar', desc: 'Syntax and proofreading' },
+    { type: 'translation', title: 'Translation', desc: 'Multilingual faithful translation' },
+    { type: 'text-analysis', title: 'Text Analysis', desc: 'Tone, sentiment & semantics' },
+    { type: 'info-extraction', title: 'Info Extraction', desc: 'Entities, dates, facts & figures' },
+    { type: 'classification', title: 'Classification', desc: 'Taxonomy categorization' },
+    { type: 'sentiment-analysis', title: 'Sentiment Analysis', desc: 'Emotional valence evaluation' },
+    { type: 'qa', title: 'Question Answering', desc: 'Fact-based direct Q&A' },
+    { type: 'structured-output', title: 'Structured Output', desc: 'Markdown tables & schema sections' },
+    { type: 'json-generation', title: 'JSON Generation', desc: 'Strict, schema-valid JSON' },
+    { type: 'content-transform', title: 'Transformation', desc: 'Refactor registers & format' }
+  ],
+  'Document AI': [
+    { type: 'doc-command-execution', title: '⚡ Execute In-File Commands', desc: 'Detect and execute all commands found in document' },
+    { type: 'doc-summary', title: 'Doc Summarize', desc: 'Multi-page document highlights' },
+    { type: 'doc-qa', title: 'Document Q&A', desc: 'Grounded Q&A from uploaded document' },
+    { type: 'doc-analysis', title: 'Document Analysis', desc: 'Methodology & structure audit' },
+    { type: 'doc-extraction', title: 'Field Extraction', desc: 'Extract structured tables & keys' },
+    { type: 'doc-comparison', title: 'Doc Comparison', desc: 'Side-by-side differential analysis' }
+  ],
+  'Developer AI': [
+    { type: 'script-command-analysis', title: '💻 Script/CLI Command Runner', desc: 'Audit, explain, and execute commands from script/text' },
+    { type: 'code-explanation', title: 'Code Explanation', desc: 'Step-by-step logic breakdown' },
+    { type: 'code-generation', title: 'Code Generation', desc: 'Production-ready code with types' },
+    { type: 'code-review', title: 'Code Review', desc: 'Security, bug, and perf audit' },
+    { type: 'bug-analysis', title: 'Bug Analysis', desc: 'Root cause and fix recommendations' },
+    { type: 'code-optimization', title: 'Code Optimization', desc: 'Refactor time/space complexity' },
+    { type: 'sql-generation', title: 'SQL Generation', desc: 'SQL Server queries & schemas' },
+    { type: 'sql-explanation', title: 'SQL Explanation', desc: 'Execution flow & indexing analysis' },
+    { type: 'doc-generation', title: 'Docs Generator', desc: 'API specs, markdown & docstrings' }
+  ],
+  'Professional AI': [
+    { type: 'resume-analysis', title: 'Resume Analysis', desc: 'ATS audit & skill gap review' },
+    { type: 'resume-improvement', title: 'Resume Improvement', desc: 'XYZ impact formula bullet points' },
+    { type: 'cover-letter', title: 'Cover Letter', desc: 'Persuasive tailored cover letters' },
+    { type: 'email-generation', title: 'Email Generation', desc: 'Executive & client communications' },
+    { type: 'report-generation', title: 'Report Generation', desc: 'Executive business reports' },
+    { type: 'meeting-summary', title: 'Meeting Summary', desc: 'Decisions & action items' },
+    { type: 'job-description', title: 'Job Description', desc: 'Role criteria audit' }
+  ],
+  'Education AI': [
+    { type: 'topic-explanation', title: 'Topic Explanation', desc: 'First-principles breakdown' },
+    { type: 'study-notes', title: 'Study Notes', desc: 'Structured chapter revision guide' },
+    { type: 'question-generation', title: 'Question Generator', desc: 'Mastery testing questions' },
+    { type: 'mcq-generation', title: 'MCQ Generation', desc: '4-choice quiz with explanations' },
+    { type: 'flashcards', title: 'Flashcards', desc: 'Active recall Q&A cards' },
+    { type: 'exam-prep', title: 'Exam Prep', desc: 'Mock test & scoring rubric' },
+    { type: 'material-qa', title: 'Uploaded Material Q&A', desc: 'Quiz grounded in uploaded notes' }
+  ],
+  'Custom AI': [
+    { type: 'custom', title: 'Custom AI Task', desc: 'Fully user-defined task instructions' }
+  ]
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.location.pathname.endsWith('processor.html')) {
+    initProcessor();
+  }
+});
+
+async function initProcessor() {
+  await loadAvailableModels();
+  renderToolkitCategories();
+  renderTaskChips(selectedCategory);
+  setupFileUpload();
+  setupPromptOptimizer();
+  setupRuntimeEventListeners();
+  triggerPreCheck();
+}
+
+async function loadAvailableModels() {
+  try {
+    const res = await api.getModels();
+    const select = document.getElementById('opt-model');
+    if (!select) return;
+
+    select.innerHTML = '';
+    res.data.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.model;
+      opt.textContent = `${m.model} (In: $${Number(m.input_price_per_million).toFixed(2)} / Out: $${Number(m.output_price_per_million).toFixed(2)} per 1M)`;
+      if (m.model === 'claude-sonnet-4-6' || m.model.includes('sonnet-4-6')) {
+        opt.selected = true;
+      }
+      select.appendChild(opt);
+    });
+  } catch (err) {
+    console.warn('Could not load models from DB:', err);
+  }
+}
+
+function renderToolkitCategories() {
+  const container = document.getElementById('toolkit-tabs');
+  if (!container) return;
+
+  container.innerHTML = '';
+  Object.keys(TOOLKIT_CATEGORIES).forEach(cat => {
+    const btn = document.createElement('button');
+    btn.className = `toolkit-tab ${cat === selectedCategory ? 'active' : ''}`;
+    btn.textContent = cat;
+    btn.addEventListener('click', () => {
+      selectedCategory = cat;
+      document.querySelectorAll('.toolkit-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderTaskChips(cat);
+    });
+    container.appendChild(btn);
+  });
+}
+
+function renderTaskChips(category) {
+  const container = document.getElementById('task-chips-grid');
+  if (!container) return;
+
+  container.innerHTML = '';
+  const tasks = TOOLKIT_CATEGORIES[category] || [];
+
+  tasks.forEach(t => {
+    const chip = document.createElement('div');
+    chip.className = `task-chip ${t.type === selectedTaskType ? 'selected' : ''}`;
+    chip.innerHTML = `
+      <div class="task-chip-title">${t.title}</div>
+      <div class="task-chip-desc">${t.desc}</div>
+    `;
+
+    chip.addEventListener('click', () => {
+      selectedTaskType = t.type;
+      document.querySelectorAll('.task-chip').forEach(c => c.classList.remove('selected'));
+      chip.classList.add('selected');
+
+      const promptInput = document.getElementById('processor-prompt');
+      if (promptInput && (!promptInput.value.trim() || promptInput.value.startsWith('Please '))) {
+        promptInput.value = `Perform ${t.title.toLowerCase()} for the following content.`;
+        triggerPreCheck();
+      }
+    });
+
+    container.appendChild(chip);
+  });
+}
+
+function setupFileUpload() {
+  const dropzone = document.getElementById('file-dropzone');
+  const fileInput = document.getElementById('file-input');
+  const attachedBox = document.getElementById('attached-file-pill');
+  const btnRemove = document.getElementById('btn-remove-file');
+
+  if (!dropzone || !fileInput) return;
+
+  ['dragenter', 'dragover'].forEach(name => {
+    dropzone.addEventListener(name, (e) => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+  });
+
+  ['dragleave', 'drop'].forEach(name => {
+    dropzone.addEventListener(name, (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+    });
+  });
+
+  dropzone.addEventListener('drop', (e) => {
+    if (e.dataTransfer.files.length) {
+      handleFileSelected(e.dataTransfer.files[0]);
+    }
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length) {
+      handleFileSelected(e.target.files[0]);
+    }
+  });
+
+  if (btnRemove) {
+    btnRemove.addEventListener('click', () => {
+      attachedFileId = null;
+      attachedFileText = '';
+      attachedFileName = '';
+      if (attachedBox) attachedBox.style.display = 'none';
+      if (dropzone) dropzone.style.display = 'block';
+      fileInput.value = '';
+      triggerPreCheck();
+    });
+  }
+
+  // Quick preset click handlers
+  const btnExecCmds = document.getElementById('btn-preset-exec-cmds');
+  const btnSummarize = document.getElementById('btn-preset-summarize');
+  const btnExtract = document.getElementById('btn-preset-extract');
+  const btnScript = document.getElementById('btn-preset-script');
+
+  if (btnExecCmds) {
+    btnExecCmds.addEventListener('click', () => {
+      const p = document.getElementById('processor-prompt');
+      if (p) p.value = 'Analyze the attached file, detect all commands, directives, or instructions specified within it, and execute each one step-by-step with complete output.';
+      selectedCategory = 'Document AI';
+      selectedTaskType = 'doc-command-execution';
+      renderToolkitCategories();
+      renderTaskChips('Document AI');
+      triggerPreCheck();
+      showToast('Set mode: Execute In-File Commands', 'info');
+    });
+  }
+
+  if (btnSummarize) {
+    btnSummarize.addEventListener('click', () => {
+      const p = document.getElementById('processor-prompt');
+      if (p) p.value = 'Provide a comprehensive executive summary of this document, highlighting key findings, decisions, and action points.';
+      selectedCategory = 'Document AI';
+      selectedTaskType = 'doc-summary';
+      renderToolkitCategories();
+      renderTaskChips('Document AI');
+      triggerPreCheck();
+      showToast('Set mode: Summarize Document', 'info');
+    });
+  }
+
+  if (btnExtract) {
+    btnExtract.addEventListener('click', () => {
+      const p = document.getElementById('processor-prompt');
+      if (p) p.value = 'Extract all actionable tasks, key data tables, metrics, entities, and deadlines from this document into structured markdown tables.';
+      selectedCategory = 'Document AI';
+      selectedTaskType = 'doc-extraction';
+      renderToolkitCategories();
+      renderTaskChips('Document AI');
+      triggerPreCheck();
+      showToast('Set mode: Extract Tasks & Data', 'info');
+    });
+  }
+
+  if (btnScript) {
+    btnScript.addEventListener('click', () => {
+      const p = document.getElementById('processor-prompt');
+      if (p) p.value = 'Analyze and audit the script/commands in this file. Explain what each command executes, check for risks, and show simulated execution results.';
+      selectedCategory = 'Developer AI';
+      selectedTaskType = 'script-command-analysis';
+      renderToolkitCategories();
+      renderTaskChips('Developer AI');
+      triggerPreCheck();
+      showToast('Set mode: CLI / Script Audit', 'info');
+    });
+  }
+}
+
+async function handleFileSelected(file) {
+  const dropzone = document.getElementById('file-dropzone');
+  const attachedBox = document.getElementById('attached-file-pill');
+  const fileNameEl = document.getElementById('attached-file-name');
+  const fileCharsEl = document.getElementById('attached-file-chars');
+
+  updateStepper('Uploading');
+  showToast(`Uploading and extracting text from "${file.name}"...`, 'info');
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('removeDuplicates', document.getElementById('opt-dedup')?.checked || false);
+
+  try {
+    const res = await api.uploadFile(formData);
+    const data = res.data;
+
+    attachedFileId = data.fileId;
+    attachedFileName = data.fileName;
+    attachedFileText = data.preview || '';
+
+    if (dropzone) dropzone.style.display = 'none';
+    if (attachedBox) attachedBox.style.display = 'flex';
+    if (fileNameEl) fileNameEl.textContent = `${data.fileName} (${(data.fileSize / 1024).toFixed(1)} KB)`;
+    if (fileCharsEl) fileCharsEl.textContent = `${data.extractedCharacters} chars extracted`;
+
+    // Automatically suggest in-file command execution if prompt is empty or default
+    const promptInput = document.getElementById('processor-prompt');
+    if (promptInput && (!promptInput.value.trim() || promptInput.value.startsWith('Perform '))) {
+      promptInput.value = 'Analyze the attached file, detect all commands, directives, or instructions specified within it, and execute them step-by-step.';
+      selectedCategory = 'Document AI';
+      selectedTaskType = 'doc-command-execution';
+      renderToolkitCategories();
+      renderTaskChips('Document AI');
+    }
+
+    showToast(`File attached! Ready to analyze and execute commands.`, 'success');
+    updateStepper('Cleaning');
+    triggerPreCheck();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+function setupPromptOptimizer() {
+  const btnOptimize = document.getElementById('btn-optimize-prompt');
+  const modePills = document.querySelectorAll('.mode-pill');
+  const diffBox = document.getElementById('prompt-diff-box');
+  const btnUseOptimized = document.getElementById('btn-use-optimized');
+  const btnUseOriginal = document.getElementById('btn-use-original');
+  const btnEditOptimized = document.getElementById('btn-edit-optimized');
+
+  modePills.forEach(pill => {
+    pill.addEventListener('click', () => {
+      modePills.forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      currentOptimizationMode = pill.dataset.mode;
+    });
+  });
+
+  if (btnOptimize) {
+    btnOptimize.addEventListener('click', async () => {
+      const promptInput = document.getElementById('processor-prompt');
+      const rawPrompt = promptInput.value.trim();
+      if (!rawPrompt) {
+        showToast('Please enter a prompt first to optimize.', 'warning');
+        return;
+      }
+
+      btnOptimize.disabled = true;
+      btnOptimize.textContent = 'Optimizing...';
+      updateStepper('Optimizing');
+
+      try {
+        const res = await api.optimizePrompt(rawPrompt, currentOptimizationMode);
+        optimizedPromptData = res.data;
+
+        // Render diff comparison
+        const origEl = document.getElementById('diff-original-content');
+        const optEl = document.getElementById('diff-optimized-content');
+        const changesEl = document.getElementById('diff-changes-summary');
+        const tokenDiffEl = document.getElementById('diff-token-change');
+
+        if (origEl) origEl.textContent = res.data.originalPrompt;
+        if (optEl) optEl.textContent = res.data.optimizedPrompt;
+        if (changesEl) changesEl.textContent = res.data.changesSummary;
+        if (tokenDiffEl) {
+          const sign = res.data.tokenDiff >= 0 ? '+' : '';
+          tokenDiffEl.textContent = `Token Difference: ${sign}${res.data.tokenDiff} tokens`;
+        }
+
+        if (diffBox) diffBox.style.display = 'grid';
+        showToast('Prompt optimized! Review changes below.', 'success');
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        btnOptimize.disabled = false;
+        btnOptimize.textContent = 'Optimize Prompt';
+      }
+    });
+  }
+
+  if (btnUseOptimized) {
+    btnUseOptimized.addEventListener('click', () => {
+      if (optimizedPromptData) {
+        currentActivePrompt = optimizedPromptData.optimizedPrompt;
+        document.getElementById('processor-prompt').value = currentActivePrompt;
+        showToast('Using Optimized Prompt.', 'success');
+        if (diffBox) diffBox.style.display = 'none';
+        triggerPreCheck();
+      }
+    });
+  }
+
+  if (btnUseOriginal) {
+    btnUseOriginal.addEventListener('click', () => {
+      if (optimizedPromptData) {
+        currentActivePrompt = optimizedPromptData.originalPrompt;
+        document.getElementById('processor-prompt').value = currentActivePrompt;
+        optimizedPromptData = null;
+        showToast('Using Original Prompt.', 'info');
+        if (diffBox) diffBox.style.display = 'none';
+        triggerPreCheck();
+      }
+    });
+  }
+
+  if (btnEditOptimized) {
+    btnEditOptimized.addEventListener('click', () => {
+      if (optimizedPromptData) {
+        document.getElementById('processor-prompt').value = optimizedPromptData.optimizedPrompt;
+        document.getElementById('processor-prompt').focus();
+        showToast('Optimized prompt loaded into editor for modification.', 'info');
+        if (diffBox) diffBox.style.display = 'none';
+      }
+    });
+  }
+}
+
+function setupRuntimeEventListeners() {
+  const promptInput = document.getElementById('processor-prompt');
+  const modelSelect = document.getElementById('opt-model');
+  const tokensInput = document.getElementById('opt-max-tokens');
+  const btnStart = document.getElementById('btn-start-processing');
+
+  if (promptInput) {
+    promptInput.addEventListener('input', debounce(() => triggerPreCheck(), 400));
+  }
+  if (modelSelect) {
+    modelSelect.addEventListener('change', () => triggerPreCheck());
+  }
+  if (tokensInput) {
+    tokensInput.addEventListener('input', () => triggerPreCheck());
+  }
+
+  if (btnStart) {
+    btnStart.addEventListener('click', () => handleStartProcessing());
+  }
+
+  // Setup Result Actions
+  setupResultActionButtons();
+}
+
+async function triggerPreCheck() {
+  const prompt = document.getElementById('processor-prompt')?.value || '';
+  const model = document.getElementById('opt-model')?.value || '';
+  const maxTokens = document.getElementById('opt-max-tokens')?.value || 1024;
+  const budgetProtection = document.getElementById('opt-budget-protection')?.checked ?? true;
+
+  try {
+    const res = await api.preCheckCost({
+      prompt,
+      fileText: attachedFileText,
+      model,
+      maxOutputTokens: maxTokens,
+      budgetProtection
+    });
+
+    const d = res.data;
+    const estTokensEl = document.getElementById('precheck-est-tokens');
+    const estCostEl = document.getElementById('precheck-est-cost');
+    const remBudgetEl = document.getElementById('precheck-rem-budget');
+    const statusBadge = document.getElementById('precheck-status-badge');
+
+    if (estTokensEl) estTokensEl.textContent = `~${d.estimatedInputTokens + d.maxOutputTokens}`;
+    if (estCostEl) estCostEl.textContent = `$${d.estimatedCost.toFixed(6)}`;
+    if (remBudgetEl) remBudgetEl.textContent = `$${d.safety.remaining.toFixed(4)}`;
+
+    if (statusBadge) {
+      if (d.safety.hardBlocked) {
+        statusBadge.className = 'badge badge-danger';
+        statusBadge.textContent = 'BLOCKED (Exceeds Safety Budget)';
+      } else if (d.safety.warning) {
+        statusBadge.className = 'badge badge-warning';
+        statusBadge.textContent = 'WARNING: Budget Alert';
+      } else {
+        statusBadge.className = 'badge badge-success';
+        statusBadge.textContent = 'SAFE TO PROCESS';
+      }
+    }
+  } catch (err) {
+    console.warn('Pre-check failed:', err);
+  }
+}
+
+async function handleStartProcessing() {
+  const prompt = document.getElementById('processor-prompt')?.value.trim();
+  if (!prompt && !attachedFileId) {
+    showToast('Please enter a prompt or attach a document.', 'warning');
+    return;
+  }
+
+  const model = document.getElementById('opt-model')?.value;
+  const maxOutputTokens = parseInt(document.getElementById('opt-max-tokens')?.value || '1024', 10);
+  const outputFormat = document.getElementById('opt-output-format')?.value || 'markdown';
+  const duplicateContentRemoval = document.getElementById('opt-dedup')?.checked || false;
+  const budgetProtection = document.getElementById('opt-budget-protection')?.checked ?? true;
+
+  const btnStart = document.getElementById('btn-start-processing');
+  btnStart.disabled = true;
+  btnStart.innerHTML = `<span class="spinner"></span> Processing AI Task...`;
+
+  updateStepper('Checking Budget');
+
+  const payload = {
+    taskType: selectedTaskType,
+    prompt,
+    optimizedPrompt: optimizedPromptData ? optimizedPromptData.optimizedPrompt : null,
+    optimizationMode: currentOptimizationMode,
+    changesSummary: optimizedPromptData ? optimizedPromptData.changesSummary : null,
+    fileId: attachedFileId,
+    runtimeOptions: {
+      model,
+      maxOutputTokens,
+      outputFormat,
+      duplicateContentRemoval,
+      budgetProtection
+    }
+  };
+
+  try {
+    updateStepper('Processing');
+    const res = await api.processTask(payload);
+    const data = res.data;
+
+    updateStepper('Recording Usage');
+    updateStepper('Completed');
+
+    renderCompletedResult(data);
+    showToast('AI Task completed successfully!', 'success');
+
+    // Refresh Sidebar Budget & Pre-Check
+    if (typeof refreshSidebarBudget === 'function') refreshSidebarBudget();
+    triggerPreCheck();
+
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    btnStart.disabled = false;
+    btnStart.textContent = 'START PROCESSING';
+  }
+}
+
+let lastCompletedTaskId = null;
+let lastResultText = '';
+
+function renderCompletedResult(data) {
+  lastCompletedTaskId = data.taskId;
+  lastResultText = data.result;
+
+  const resultContainer = document.getElementById('result-content-box');
+  const metricsBar = document.getElementById('result-metrics-bar');
+
+  if (resultContainer) {
+    if (data.resultFormat === 'json') {
+      resultContainer.innerHTML = `<pre><code>${escapeHtml(data.result)}</code></pre>`;
+    } else {
+      // Clean display of markdown text
+      resultContainer.innerHTML = formatMarkdownToHtml(data.result);
+    }
+  }
+
+  if (metricsBar) {
+    metricsBar.innerHTML = `
+      <span>Tokens: <strong>${data.usage.totalTokens}</strong> (In: ${data.usage.inputTokens} | Out: ${data.usage.outputTokens})</span>
+      <span>Request Cost: <strong>$${data.cost.requestCost.toFixed(6)}</strong></span>
+      <span>Remaining Budget: <strong>$${data.cost.remainingBudget.toFixed(4)}</strong></span>
+      <span>Latency: <strong>${data.processingTimeMs}ms</strong></span>
+    `;
+    metricsBar.style.display = 'flex';
+  }
+}
+
+function setupResultActionButtons() {
+  const btnCopy = document.getElementById('btn-copy-result');
+  const btnDlTxt = document.getElementById('btn-dl-txt');
+  const btnDlMd = document.getElementById('btn-dl-md');
+  const btnDlJson = document.getElementById('btn-dl-json');
+  const btnDlExcel = document.getElementById('btn-dl-excel');
+
+  if (btnCopy) {
+    btnCopy.addEventListener('click', () => {
+      if (!lastResultText) return showToast('No result available to copy.', 'warning');
+      navigator.clipboard.writeText(lastResultText);
+      showToast('Result copied to clipboard!', 'success');
+    });
+  }
+
+  if (btnDlTxt) {
+    btnDlTxt.addEventListener('click', () => {
+      if (!lastCompletedTaskId) return showToast('No completed task to download.', 'warning');
+      window.location.href = api.downloadResultUrl(lastCompletedTaskId, 'txt');
+    });
+  }
+  if (btnDlMd) {
+    btnDlMd.addEventListener('click', () => {
+      if (!lastCompletedTaskId) return showToast('No completed task to download.', 'warning');
+      window.location.href = api.downloadResultUrl(lastCompletedTaskId, 'md');
+    });
+  }
+  if (btnDlJson) {
+    btnDlJson.addEventListener('click', () => {
+      if (!lastCompletedTaskId) return showToast('No completed task to download.', 'warning');
+      window.location.href = api.downloadResultUrl(lastCompletedTaskId, 'json');
+    });
+  }
+  if (btnDlExcel) {
+    btnDlExcel.addEventListener('click', () => {
+      if (!lastCompletedTaskId) return showToast('No completed task to download.', 'warning');
+      window.location.href = api.downloadResultUrl(lastCompletedTaskId, 'xlsx');
+    });
+  }
+}
+
+function updateStepper(stepName) {
+  const steps = ['Uploading', 'Extracting', 'Cleaning', 'Optimizing', 'Checking Budget', 'Processing', 'Recording Usage', 'Completed'];
+  const currentIdx = steps.indexOf(stepName);
+
+  document.querySelectorAll('.step-item').forEach((item) => {
+    const name = item.dataset.step;
+    const idx = steps.indexOf(name);
+    item.classList.remove('active', 'completed');
+
+    if (idx < currentIdx) {
+      item.classList.add('completed');
+    } else if (idx === currentIdx) {
+      item.classList.add('active');
+    }
+  });
+}
+
+function formatMarkdownToHtml(md) {
+  if (!md) return '';
+  return md
+    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+    .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
+    .replace(/\*(.*)\*/gim, '<em>$1</em>')
+    .replace(/```([\s\S]*?)```/gim, '<pre><code>$1</code></pre>')
+    .replace(/^\- (.*$)/gim, '<li>$1</li>')
+    .replace(/\n$/gim, '<br />')
+    .replace(/\n\n/gim, '<br /><br />');
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function debounce(fn, wait) {
+  let timeout;
+  return function (...args) {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => fn.apply(this, args), wait);
+  };
+}
