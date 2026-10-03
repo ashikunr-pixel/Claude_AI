@@ -11,7 +11,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-function initFilesPage() {
+async function initFilesPage() {
+  await setupActiveKeySelector('global-active-key-select');
   loadFiles();
 
   // Close modal

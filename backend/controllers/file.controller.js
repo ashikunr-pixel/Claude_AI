@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const { File, getNextSequence } = require('../models');
+const { connectMongo } = require('../config/mongo');
 const { extractTextFromFile } = require('../services/fileProcessor.service');
 const { validateFile, sanitizeFileName, MAX_FILE_SIZE_BYTES } = require('../utils/validators');
 const logger = require('../utils/logger');
@@ -32,6 +33,11 @@ const uploadMiddleware = multer({
  * Handle file upload and text extraction (MongoDB Atlas)
  */
 async function uploadFile(req, res, next) {
+  try {
+    await connectMongo();
+  } catch (mErr) {
+    logger.error('Failed to verify MongoDB connection in uploadFile:', mErr);
+  }
   uploadMiddleware(req, res, async (err) => {
     if (err) {
       return next(err);

@@ -11,7 +11,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-function initTasksPage() {
+async function initTasksPage() {
+  await setupActiveKeySelector('global-active-key-select');
+  window.addEventListener('activeKeyChanged', () => {
+    tasksPage = 1;
+    loadTasks();
+  });
   loadTasks();
 }
 

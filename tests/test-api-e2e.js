@@ -129,6 +129,13 @@ async function runE2eTests() {
   const htmlCheck = await get('/dashboard.html');
   console.log('9. Frontend Serving (dashboard.html):', htmlCheck.status === 200 ? 'SUCCESS' : 'FAILED', `Length: ${htmlCheck.raw?.length || 0} bytes`);
 
+  // 10. Multi-Key API Endpoints Check
+  const keysRes = await get('/api/keys', token);
+  console.log('10. Multi-Key API Management:', keysRes.status === 200 ? 'SUCCESS' : 'FAILED', {
+    totalKeys: keysRes.data?.data?.length,
+    keys: keysRes.data?.data?.map(k => ({ id: k.key_id, name: k.name, masked: k.masked_key, isDefault: k.is_default, spent: k.total_cost }))
+  });
+
   console.log('\nAll Endpoints Verified Successfully!');
 }
 

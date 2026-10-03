@@ -163,6 +163,57 @@ async function runTestSuite() {
     assert(false, `Excel generation failed: ${err.message}`);
   }
 
+  // Test 10: Dynamic Multi-Key API Management & Isolation
+  console.log('\n[Test Group 10: Dynamic Scalable Multi-Key API Management]');
+  try {
+    const { listApiKeys, getApiKeyById, createApiKey, deleteApiKey, maskKey, encryptKey, decryptKey, ensureDefaultKey } = require('../backend/services/key.service');
+
+    // 10.1: Masking & Security
+    const testSecret = 'ant-mock-key-unit-test-spec-9876';
+    const masked = maskKey(testSecret);
+    assert(masked.endsWith('9876'), `Key masked securely: ${masked}`);
+
+    // 10.2: Encryption / Decryption
+    const cipher = encryptKey(testSecret);
+    const decrypted = decryptKey(cipher);
+    assert(decrypted === testSecret, 'AES-256-GCM symmetric encryption/decryption round-trip matches');
+
+    // 10.3: Default & Secondary Key Seeding
+    await ensureDefaultKey();
+    const allKeys = await listApiKeys(true);
+    assert(allKeys.length >= 2, `Database contains ${allKeys.length} configured API keys (scalable for 2, 3, 10, 50, 100+)`);
+
+    const key1 = allKeys.find(k => k.key_id === 1);
+    const key2 = allKeys.find(k => k.key_id === 2);
+    assert(key1 && key1.is_default, 'Primary API Key (#1) is set as default');
+    assert(key2 && key2.name.includes('Secondary'), 'Secondary API Key (#2) is configured');
+
+    // 10.4: Per-Key Independent Safety Budget
+    const key1Budget = await getBudgetStatus(1);
+    const key2Budget = await getBudgetStatus(2);
+    assert(key1Budget.budgetUsd === 5.00 && key2Budget.budgetUsd === 5.00, 'Each key has independent $5.00 application safety limit');
+    assert(key2Budget.cumulativeSpent === 0.00 && key2Budget.remainingBudget === 5.00, 'Newly created secondary key starts cleanly with $0 spent and $5.00 remaining');
+
+    // 10.5: Dynamic Creation of Key 3
+    const key3 = await createApiKey({
+      name: 'Dynamic Third Key (E2E Test)',
+      apiKey: 'sk-ant-test-synthetic-key-3333',
+      isDefault: false
+    });
+    assert(key3.key_id > 2 && key3.masked_key.endsWith('3333'), `Dynamically created Key #${key3.key_id} with masked secret ${key3.masked_key}`);
+
+    const key3Budget = await getBudgetStatus(key3.key_id);
+    assert(key3Budget.cumulativeSpent === 0.00 && key3Budget.remainingBudget === 5.00, 'Key 3 starts with clean $0.00 usage');
+
+    // Clean up temporary test key 3
+    await deleteApiKey(key3.key_id);
+    const verifyDeleted = await getApiKeyById(key3.key_id);
+    assert(!verifyDeleted, `Test Key #${key3.key_id} deleted cleanly`);
+
+  } catch (err) {
+    assert(false, `Multi-Key tests failed: ${err.message}`);
+  }
+
   // Summary
   console.log('\n================================================================');
   console.log(`TEST SUITE RESULTS: ${passedTests} PASSED, ${failedTests} FAILED`);

@@ -23,6 +23,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function initDashboard() {
+  await setupActiveKeySelector('global-active-key-select');
+
+  window.addEventListener('activeKeyChanged', async () => {
+    await Promise.all([
+      loadDashboardData(true),
+      loadFileCountBadge()
+    ]);
+    const activeTab = document.querySelector('.sub-nav-tab.active')?.dataset?.tab || 'analytics';
+    if (activeTab === 'history') await loadHistoryRequests();
+    if (activeTab === 'users') await loadUsersUsage();
+    if (activeTab === 'features') await loadFeaturesUsage();
+    if (activeTab === 'files') await loadFilesList();
+    if (activeTab === 'downloads') await loadDownloadsData();
+  });
+
   setupSubNavTabs();
   setupFilterTabs();
   setupHistoryFilters();

@@ -124,6 +124,14 @@
             </div>
           </div>
 
+          <!-- Active API Key Selector -->
+          <div class="active-key-selector-wrap" id="active-key-selector-container">
+            <span class="active-key-label">🔑 Active Key:</span>
+            <select id="global-active-key-select" class="active-key-dropdown" title="Switch active Anthropic API Key">
+              <option value="">Loading Keys...</option>
+            </select>
+          </div>
+
           <button id="btn-dashboard-refresh" class="btn btn-secondary btn-sm refresh-btn-glow" title="Refresh Live Telemetry">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             <span>Refresh</span>

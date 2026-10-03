@@ -6,6 +6,7 @@
   <title>Task Lifecycle - Claude AI Platform</title>
   <meta name="description" content="AI Task Lifecycle and Execution Status">
   <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/dashboard.css">
   <link rel="stylesheet" href="css/tables.css">
 </head>
 <body>
@@ -99,6 +100,12 @@
           <p>Track async task states, completion timestamps, and generated results</p>
         </div>
         <div class="header-actions">
+          <div class="active-key-selector-wrap" id="active-key-selector-container">
+            <span class="active-key-label">🔑 Active Key:</span>
+            <select id="global-active-key-select" class="active-key-dropdown" title="Switch active Anthropic API Key">
+              <option value="">Loading Keys...</option>
+            </select>
+          </div>
           <a href="processor.html" class="btn btn-primary btn-sm">+ Launch New Task</a>
         </div>
       </header>

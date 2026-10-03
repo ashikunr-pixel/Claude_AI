@@ -15,6 +15,7 @@ const { extractUsageTokens } = require('./token.service');
 const { checkBudgetSafety } = require('./budget.service');
 const { recordRequestUsage } = require('./usage.service');
 const { estimateRequestCost } = require('./cost.service');
+const { resolveClaudeKey, touchApiKey } = require('./key.service');
 const logger = require('../utils/logger');
 
 // Predefined AI Toolkit Tasks with category and mapped AI feature
@@ -79,6 +80,7 @@ const TOOLKIT_TASKS = {
  */
 async function processAiTask({
   userId,
+  apiKeyId = null,
   taskType = 'custom',
   prompt,
   optimizedPrompt = null,
@@ -88,6 +90,8 @@ async function processAiTask({
   runtimeOptions = {}
 }) {
   const startTime = Date.now();
+  const resolvedKey = await resolveClaudeKey(apiKeyId);
+  const activeKeyId = resolvedKey.keyId;
   let requestedModel = runtimeOptions.model || DEFAULT_MODEL;
   // Automatically normalize unavailable/legacy models to working default model
   if (requestedModel.includes('3-7-sonnet') || requestedModel.includes('3-5-sonnet') || requestedModel.includes('3-opus') || requestedModel.includes('3-5-haiku')) {
@@ -104,12 +108,9 @@ async function processAiTask({
   let fileText = '';
   let attachedFile = null;
   if (fileId) {
-    const fileRes = await db.query(
-      'SELECT file_id, file_name, file_type, extracted_text FROM dbo.files WHERE file_id = @fileId',
-      { fileId }
-    );
-    if (fileRes.recordset.length > 0) {
-      attachedFile = fileRes.recordset[0];
+    const fileRes = await File.findOne({ file_id: Number(fileId) }).lean();
+    if (fileRes) {
+      attachedFile = fileRes;
       fileText = attachedFile.extracted_text || '';
     }
   }
@@ -141,7 +142,7 @@ ${fileText}
   const estimatedCost = estimatedCostData.estimatedTotalCost;
 
   // 5. Application Budget Safety Check ($5 Safety Budget)
-  const budgetCheck = await checkBudgetSafety(estimatedCost, budgetProtection);
+  const budgetCheck = await checkBudgetSafety(estimatedCost, budgetProtection, activeKeyId);
   if (!budgetCheck.allowed && budgetProtection) {
     const err = new Error(budgetCheck.message);
     err.statusCode = 402; // Payment Required / Budget Exceeded
@@ -189,6 +190,7 @@ ${fileText}
     request_id: requestId,
     task_id: taskId,
     user_id: userId,
+    api_key_id: activeKeyId,
     model,
     provider: 'anthropic',
     status: 'PROCESSING',
@@ -220,7 +222,7 @@ ${fileText}
   let processingTimeMs = 0;
 
   try {
-    const client = getAnthropicClient();
+    const client = getAnthropicClient(resolvedKey.apiKey);
     let systemInstruction = taskDefinition.systemPrompt;
 
     if (outputFormat === 'json') {
@@ -280,16 +282,14 @@ ${fileText}
     logger.error(`Claude API error for task ${taskId}:`, apiErr);
 
     // Record failure in DB
-    await db.query(
-      `UPDATE dbo.tasks SET status = 'FAILED', completed_at = SYSUTCDATETIME() WHERE task_id = @taskId;
-       UPDATE dbo.api_requests SET status = 'FAILED', processing_time_ms = @processingTimeMs, error_message = @errorMsg WHERE request_id = @requestId;`,
-      {
-        taskId,
-        requestId,
-        processingTimeMs,
-        errorMsg: apiErr.message || 'Claude API execution error'
-      }
-    );
+    await Task.updateOne(
+      { task_id: taskId },
+      { $set: { status: 'FAILED', completed_at: new Date() } }
+    ).catch(() => {});
+    await ApiRequest.updateOne(
+      { request_id: requestId },
+      { $set: { status: 'FAILED', processing_time_ms: processingTimeMs, error_message: apiErr.message || 'Claude API execution error' } }
+    ).catch(() => {});
 
     throw apiErr;
   }
@@ -297,6 +297,7 @@ ${fileText}
   // 8. Record Usage & Calculate Exact Cost
   const usageRecord = await recordRequestUsage({
     requestId,
+    apiKeyId: activeKeyId,
     model,
     inputTokens: usageTokens.inputTokens,
     outputTokens: usageTokens.outputTokens,
@@ -305,6 +306,10 @@ ${fileText}
     processingTimeMs,
     status: 'SUCCESS'
   });
+
+  if (activeKeyId) {
+    touchApiKey(activeKeyId).catch(err => logger.warn(`Error touching apiKey ${activeKeyId}:`, err.message));
+  }
 
   // 9. Save Generated Result in MongoDB Atlas
   const resultId = await getNextSequence('resultId');

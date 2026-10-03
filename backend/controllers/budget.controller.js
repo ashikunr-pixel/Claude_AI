@@ -6,7 +6,8 @@ const logger = require('../utils/logger');
 
 async function getBudget(req, res, next) {
   try {
-    const status = await getBudgetStatus();
+    const apiKeyId = req.query.apiKeyId || req.headers['x-api-key-id'] || null;
+    const status = await getBudgetStatus(apiKeyId);
     res.json({
       success: true,
       data: status
@@ -49,6 +50,7 @@ async function updateBudget(req, res, next) {
 async function preCheck(req, res, next) {
   try {
     const { prompt, fileText, model, maxOutputTokens, budgetProtection } = req.body;
+    const apiKeyId = req.body.apiKeyId || req.headers['x-api-key-id'] || null;
 
     const fullContent = `${prompt || ''}\n${fileText || ''}`.trim();
     const estInputTokens = estimateTokens(fullContent);
@@ -56,7 +58,11 @@ async function preCheck(req, res, next) {
     const selectedModel = model || DEFAULT_MODEL;
 
     const costEst = await estimateRequestCost(selectedModel, estInputTokens, maxTokens);
-    const safety = await checkBudgetSafety(costEst.estimatedTotalCost, budgetProtection !== undefined ? Boolean(budgetProtection) : true);
+    const safety = await checkBudgetSafety(
+      costEst.estimatedTotalCost,
+      budgetProtection !== undefined ? Boolean(budgetProtection) : true,
+      apiKeyId
+    );
 
     res.json({
       success: true,

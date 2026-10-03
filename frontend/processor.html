@@ -6,6 +6,7 @@
   <title>AI Studio - Claude AI Enterprise Platform</title>
   <meta name="description" content="AI File Processing, Toolkit, and Prompt Optimization Studio">
   <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/dashboard.css">
   <link rel="stylesheet" href="css/processor.css">
 </head>
 <body>
@@ -101,6 +102,12 @@
           <p>Prompt Engineering, Document Analysis & Claude API Execution</p>
         </div>
         <div class="header-actions">
+          <div class="active-key-selector-wrap" id="active-key-selector-container">
+            <span class="active-key-label">🔑 Active Key:</span>
+            <select id="global-active-key-select" class="active-key-dropdown" title="Switch active Anthropic API Key">
+              <option value="">Loading Keys...</option>
+            </select>
+          </div>
           <span class="badge badge-success">API Status: Ready</span>
         </div>
       </header>

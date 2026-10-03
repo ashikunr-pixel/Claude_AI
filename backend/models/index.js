@@ -16,7 +16,9 @@ const SEQUENCE_CONFIG = {
   usage: { modelName: 'ApiUsage', field: 'usage_id' },
   result: { modelName: 'GeneratedResult', field: 'result_id' },
   taskfeature: { modelName: 'TaskFeature', field: 'task_feature_id' },
-  log: { modelName: 'AuditLog', field: 'log_id' }
+  log: { modelName: 'AuditLog', field: 'log_id' },
+  apikey: { modelName: 'ApiKey', field: 'key_id' },
+  key: { modelName: 'ApiKey', field: 'key_id' }
 };
 
 function normalizeSeqKey(name) {
@@ -121,6 +123,7 @@ const promptSchema = new mongoose.Schema({
 // 5. API Requests Collection
 const apiRequestSchema = new mongoose.Schema({
   request_id: { type: Number, unique: true, index: true },
+  api_key_id: { type: Number, index: true },
   task_id: { type: Number, index: true },
   user_id: { type: Number, index: true },
   provider: { type: String, default: 'anthropic' },
@@ -130,10 +133,12 @@ const apiRequestSchema = new mongoose.Schema({
   error_message: { type: String },
   created_at: { type: Date, default: Date.now, index: true }
 });
+apiRequestSchema.index({ api_key_id: 1, created_at: -1 });
 
 // 6. API Usage & Costs Collection
 const apiUsageSchema = new mongoose.Schema({
   usage_id: { type: Number, unique: true, index: true },
+  api_key_id: { type: Number, index: true },
   request_id: { type: Number, index: true },
   input_tokens: { type: Number, default: 0 },
   output_tokens: { type: Number, default: 0 },
@@ -145,6 +150,7 @@ const apiUsageSchema = new mongoose.Schema({
   remaining_budget: { type: Number, default: 5.0 },
   created_at: { type: Date, default: Date.now, index: true }
 });
+apiUsageSchema.index({ api_key_id: 1, created_at: -1 });
 
 // 7. Model Pricing Collection
 const modelPricingSchema = new mongoose.Schema({
@@ -206,6 +212,20 @@ const auditLogSchema = new mongoose.Schema({
   timestamp: { type: Date, default: Date.now, index: true }
 });
 
+// 13. API Keys Collection (Dynamic Multi-Key Management)
+const apiKeySchema = new mongoose.Schema({
+  key_id: { type: Number, unique: true, index: true },
+  name: { type: String, required: true, trim: true },
+  encrypted_key: { type: String, required: true },
+  masked_key: { type: String, required: true },
+  status: { type: String, enum: ['ACTIVE', 'INACTIVE'], default: 'ACTIVE', index: true },
+  is_default: { type: Boolean, default: false },
+  created_at: { type: Date, default: Date.now, index: true },
+  updated_at: { type: Date, default: Date.now },
+  last_used_at: { type: Date }
+});
+apiKeySchema.index({ status: 1, created_at: -1 });
+
 const User = mongoose.model('User', userSchema);
 const Task = mongoose.model('Task', taskSchema);
 const File = mongoose.model('File', fileSchema);
@@ -218,6 +238,7 @@ const TaskFeature = mongoose.model('TaskFeature', taskFeatureSchema);
 const GeneratedResult = mongoose.model('GeneratedResult', generatedResultSchema);
 const BudgetSetting = mongoose.model('BudgetSetting', budgetSettingSchema);
 const AuditLog = mongoose.model('AuditLog', auditLogSchema);
+const ApiKey = mongoose.model('ApiKey', apiKeySchema);
 
 module.exports = {
   Counter,
@@ -233,5 +254,6 @@ module.exports = {
   TaskFeature,
   GeneratedResult,
   BudgetSetting,
-  AuditLog
+  AuditLog,
+  ApiKey
 };

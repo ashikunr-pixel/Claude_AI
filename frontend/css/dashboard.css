@@ -918,3 +918,54 @@
   transform: translateY(-1px) !important;
   box-shadow: 0 6px 24px -2px rgba(139, 92, 246, 0.65) !important;
 }
+
+/* Active API Key Selector Dropdown Component */
+.active-key-selector-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: 12px;
+  padding: 4px 12px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.active-key-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.active-key-dropdown {
+  background: rgba(30, 41, 59, 0.85);
+  color: #f8fafc;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+  max-width: 250px;
+}
+
+.active-key-dropdown:hover,
+.active-key-dropdown:focus {
+  border-color: #6366f1;
+  background: rgba(30, 41, 59, 1);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.35);
+}
+
+.active-key-dropdown option {
+  background: #0f172a;
+  color: #f8fafc;
+}

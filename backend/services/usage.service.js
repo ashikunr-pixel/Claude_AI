@@ -18,6 +18,7 @@ const { getBudgetStatus } = require('./budget.service');
  */
 async function recordRequestUsage({
   requestId,
+  apiKeyId = null,
   model,
   inputTokens,
   outputTokens,
@@ -35,7 +36,7 @@ async function recordRequestUsage({
     cacheCreationTokens
   );
 
-  const budget = await getBudgetStatus();
+  const budget = await getBudgetStatus(apiKeyId);
   const requestCost = costData.totalCost;
   const newCumulativeCost = Number((budget.cumulativeSpent + requestCost).toFixed(6));
   const newRemainingBudget = Math.max(0, Number((budget.budgetUsd - newCumulativeCost).toFixed(6)));
@@ -45,6 +46,7 @@ async function recordRequestUsage({
 
   await ApiUsage.create({
     usage_id: usageId,
+    api_key_id: apiKeyId ? Number(apiKeyId) : null,
     request_id: requestId,
     input_tokens: inputTokens,
     output_tokens: outputTokens,
@@ -60,6 +62,7 @@ async function recordRequestUsage({
   await ApiRequest.findOneAndUpdate(
     { request_id: requestId },
     {
+      api_key_id: apiKeyId ? Number(apiKeyId) : null,
       status,
       processing_time_ms: processingTimeMs,
       error_message: errorMessage
@@ -84,23 +87,26 @@ async function recordRequestUsage({
 /**
  * Get aggregated dashboard metrics (MongoDB Atlas)
  */
-async function getDashboardSummary(userId = null, role = 'USER') {
+async function getDashboardSummary(userId = null, role = 'USER', apiKeyId = null) {
   const isAdmin = role === 'ADMIN';
   const query = !isAdmin && userId ? { user_id: userId } : {};
 
-  const budget = await getBudgetStatus();
+  const budget = await getBudgetStatus(apiKeyId);
 
   let totalTasks = 0;
   let usages = [];
   try {
-    totalTasks = await Task.countDocuments(query);
-    if (!isAdmin && userId) {
-      const userRequests = await ApiRequest.find({ user_id: userId }, 'request_id').lean();
-      const requestIds = userRequests.map(r => r.request_id);
-      usages = await ApiUsage.find({ request_id: { $in: requestIds } }).lean();
-    } else {
-      usages = await ApiUsage.find().lean();
+    const reqFilter = { ...query };
+    if (apiKeyId && apiKeyId !== 'all') {
+      reqFilter.api_key_id = Number(apiKeyId);
     }
+
+    const matchingRequests = await ApiRequest.find(reqFilter, 'request_id task_id').lean();
+    const requestIds = matchingRequests.map(r => r.request_id);
+    const taskIds = [...new Set(matchingRequests.map(r => r.task_id).filter(Boolean))];
+
+    totalTasks = taskIds.length;
+    usages = await ApiUsage.find({ request_id: { $in: requestIds } }).lean();
   } catch {}
 
   const totalRequests = usages.length;
@@ -147,7 +153,8 @@ async function getUsageRequests({
   taskType = '',
   dateRange = 'all',
   page = 1,
-  limit = 20
+  limit = 20,
+  apiKeyId = null
 }) {
   const isAdmin = role === 'ADMIN';
   const offset = (page - 1) * limit;
@@ -155,6 +162,9 @@ async function getUsageRequests({
   const query = {};
   if (!isAdmin && userId) {
     query.user_id = userId;
+  }
+  if (apiKeyId && apiKeyId !== 'all') {
+    query.api_key_id = Number(apiKeyId);
   }
   if (model) {
     query.model = model;
@@ -316,9 +326,13 @@ async function getRequestDetails(requestId, userId = null, role = 'USER') {
 /**
  * Get Analytics Chart Data (MongoDB Atlas)
  */
-async function getChartAnalytics(userId = null, role = 'USER', range = '7days') {
+async function getChartAnalytics(userId = null, role = 'USER', range = '7days', apiKeyId = null) {
   const isAdmin = role === 'ADMIN';
   const query = !isAdmin && userId ? { user_id: userId } : {};
+
+  if (apiKeyId && apiKeyId !== 'all') {
+    query.api_key_id = Number(apiKeyId);
+  }
 
   let daysBack = 7;
   if (range === '30days') daysBack = 30;

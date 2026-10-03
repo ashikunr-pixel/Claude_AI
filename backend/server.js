@@ -21,6 +21,8 @@ const budgetRoutes = require('./routes/budget.routes');
 const resultRoutes = require('./routes/result.routes');
 const exportRoutes = require('./routes/export.routes');
 const systemRoutes = require('./routes/system.routes');
+const keyRoutes = require('./routes/key.routes');
+const { ensureDefaultKey } = require('./services/key.service');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -33,7 +35,7 @@ app.use(helmet({
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Api-Key-Id', 'x-api-key-id']
 }));
 
 // Rate limiter: 300 requests per 15 minutes per IP
@@ -64,6 +66,7 @@ app.use('/api/budget', budgetRoutes);
 app.use('/api/results', resultRoutes);
 app.use('/api/exports', exportRoutes);
 app.use('/api/system', systemRoutes);
+app.use('/api/keys', keyRoutes);
 
 // Serve Frontend Static Files
 const frontendPath = path.join(__dirname, '../frontend');
@@ -88,6 +91,7 @@ async function startServer() {
   
   // 1. Connect to MongoDB Atlas FIRST
   await connectMongo();
+  await ensureDefaultKey();
 
   // 2. Load budget telemetry
   try {

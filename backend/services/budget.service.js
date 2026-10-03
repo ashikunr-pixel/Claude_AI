@@ -6,7 +6,7 @@ const DEFAULT_BUDGET = parseFloat(process.env.AI_BUDGET_USD || '5.00');
 /**
  * Retrieve current budget settings and cumulative application spending from MongoDB Atlas
  */
-async function getBudgetStatus() {
+async function getBudgetStatus(apiKeyId = null) {
   let budgetUsd = DEFAULT_BUDGET;
   let warningThreshold = 80;
   let hardStopEnabled = false;
@@ -23,7 +23,11 @@ async function getBudgetStatus() {
   let cumulativeSpent = 0;
   let totalRequests = 0;
   try {
-    const usages = await ApiUsage.find({}, 'request_cost').lean();
+    const query = {};
+    if (apiKeyId && apiKeyId !== 'all') {
+      query.api_key_id = Number(apiKeyId);
+    }
+    const usages = await ApiUsage.find(query, 'request_cost').lean();
     totalRequests = usages.length;
     cumulativeSpent = usages.reduce((acc, u) => acc + (u.request_cost || 0), 0);
   } catch {}
@@ -39,6 +43,7 @@ async function getBudgetStatus() {
   else if (isWarning) statusLabel = 'NEAR_LIMIT';
 
   return {
+    apiKeyId: apiKeyId ? Number(apiKeyId) : null,
     budgetUsd: Number(budgetUsd.toFixed(2)),
     cumulativeSpent: Number(cumulativeSpent.toFixed(6)),
     remainingBudget: Number(remainingBudget.toFixed(6)),
@@ -55,8 +60,8 @@ async function getBudgetStatus() {
 /**
  * Pre-check whether a request is safe to process against the safety budget
  */
-async function checkBudgetSafety(estimatedCost, taskHardStopOption = null) {
-  const current = await getBudgetStatus();
+async function checkBudgetSafety(estimatedCost, taskHardStopOption = null, apiKeyId = null) {
+  const current = await getBudgetStatus(apiKeyId);
   const willExceed = (current.cumulativeSpent + estimatedCost) > current.budgetUsd;
   const hardStopActive = taskHardStopOption !== null ? taskHardStopOption : current.hardStopEnabled;
 

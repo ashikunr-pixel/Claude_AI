@@ -180,3 +180,8 @@ async function refreshSidebarBudget() {
     console.warn('Could not update sidebar budget widget:', err);
   }
 }
+
+// Reactively refresh sidebar budget when active key changes
+window.addEventListener('activeKeyChanged', () => {
+  refreshSidebarBudget();
+});

@@ -11,7 +11,8 @@ async function getSummary(req, res, next) {
   try {
     const userId = req.user.user_id;
     const role = req.user.role;
-    const summary = await getDashboardSummary(userId, role);
+    const apiKeyId = req.query.apiKeyId || req.headers['x-api-key-id'] || null;
+    const summary = await getDashboardSummary(userId, role, apiKeyId);
 
     res.json({
       success: true,
@@ -26,6 +27,7 @@ async function getRequests(req, res, next) {
   try {
     const userId = req.user.user_id;
     const role = req.user.role;
+    const apiKeyId = req.query.apiKeyId || req.headers['x-api-key-id'] || null;
     const { search, model, taskType, dateRange, page, limit } = req.query;
 
     const result = await getUsageRequests({
@@ -35,6 +37,7 @@ async function getRequests(req, res, next) {
       model,
       taskType,
       dateRange,
+      apiKeyId,
       page: parseInt(page || '1', 10),
       limit: parseInt(limit || '20', 10)
     });
@@ -74,8 +77,9 @@ async function getCharts(req, res, next) {
     const userId = req.user.user_id;
     const role = req.user.role;
     const range = req.query.range || '7days';
+    const apiKeyId = req.query.apiKeyId || req.headers['x-api-key-id'] || null;
 
-    const analytics = await getChartAnalytics(userId, role, range);
+    const analytics = await getChartAnalytics(userId, role, range, apiKeyId);
 
     res.json({
       success: true,

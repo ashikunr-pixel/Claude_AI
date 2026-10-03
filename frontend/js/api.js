@@ -21,6 +21,20 @@ const api = {
     }
   },
 
+  // Active Claude API Key Management
+  getActiveApiKeyId() {
+    return localStorage.getItem('claude_active_key_id') || '';
+  },
+
+  setActiveApiKeyId(keyId) {
+    if (keyId) {
+      localStorage.setItem('claude_active_key_id', String(keyId));
+    } else {
+      localStorage.removeItem('claude_active_key_id');
+    }
+    window.dispatchEvent(new CustomEvent('activeKeyChanged', { detail: { keyId } }));
+  },
+
   // Standard fetch wrapper
   async request(endpoint, options = {}) {
     const url = `${API_BASE}${endpoint}`;
@@ -32,6 +46,11 @@ const api = {
 
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const activeKeyId = this.getActiveApiKeyId();
+    if (activeKeyId && !headers['X-Api-Key-Id']) {
+      headers['X-Api-Key-Id'] = activeKeyId;
     }
 
     if (!(options.body instanceof FormData) && !headers['Content-Type']) {
@@ -216,6 +235,43 @@ const api = {
   getExportUrl(type) {
     const token = this.getToken();
     return `${API_BASE}/exports/${type}?token=${encodeURIComponent(token)}`;
+  },
+
+  // API Key Management (Dynamic Multi-Key Support)
+  getKeys() {
+    return this.request('/keys');
+  },
+
+  getKeyById(id) {
+    return this.request(`/keys/${id}`);
+  },
+
+  createKey(payload) {
+    return this.request('/keys', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+
+  updateKey(id, payload) {
+    return this.request(`/keys/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
+  },
+
+  deleteKey(id) {
+    return this.request(`/keys/${id}`, {
+      method: 'DELETE'
+    });
+  },
+
+  testKey(payload = {}, id = null) {
+    const ep = id ? `/keys/${id}/test` : '/keys/test';
+    return this.request(ep, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
   }
 };
 
@@ -239,4 +295,45 @@ function showToast(message, type = 'info') {
     toast.style.transform = 'translateY(10px)';
     setTimeout(() => toast.remove(), 300);
   }, 4000);
+}
+
+// Global Active API Key Selector Initializer
+async function setupActiveKeySelector(selectElementId = 'global-active-key-select') {
+  try {
+    const select = document.getElementById(selectElementId);
+    if (!select) return;
+
+    const res = await api.getKeys();
+    const keys = res.data || [];
+    if (!keys.length) return;
+
+    let activeKeyId = api.getActiveApiKeyId();
+    const defaultKey = keys.find(k => k.is_default) || keys[0];
+
+    if (!activeKeyId || !keys.some(k => String(k.key_id) === String(activeKeyId))) {
+      activeKeyId = String(defaultKey.key_id);
+      localStorage.setItem('claude_active_key_id', activeKeyId);
+    }
+
+    select.innerHTML = '';
+    keys.forEach(k => {
+      const opt = document.createElement('option');
+      opt.value = k.key_id;
+      const defMarker = k.is_default ? ' ★' : '';
+      opt.textContent = `${k.name} (${k.masked_key})${defMarker}`;
+      if (String(k.key_id) === String(activeKeyId)) {
+        opt.selected = true;
+      }
+      select.appendChild(opt);
+    });
+
+    select.onchange = (e) => {
+      const selectedId = e.target.value;
+      api.setActiveApiKeyId(selectedId);
+      const chosen = keys.find(k => String(k.key_id) === String(selectedId));
+      showToast(`Active API Key switched to: ${chosen ? chosen.name : selectedId}`, 'info');
+    };
+  } catch (err) {
+    console.warn('Could not populate active key selector:', err);
+  }
 }

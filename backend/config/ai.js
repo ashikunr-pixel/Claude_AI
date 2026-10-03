@@ -18,21 +18,26 @@ function getMaskedApiKey() {
   return `${clean.substring(0, 10)}...${clean.substring(clean.length - 4)}`;
 }
 
-let clientInstance = null;
+const clientPool = new Map();
 
-function getAnthropicClient() {
-  if (!isApiKeyConfigured()) {
-    throw new Error('ANTHROPIC_API_KEY is not configured in .env file. Please add your Anthropic API key to .env.');
+function getAnthropicClient(apiKeyString = null) {
+  const activeKey = (apiKeyString || process.env.ANTHROPIC_API_KEY || '').trim();
+
+  if (!activeKey || !activeKey.startsWith('sk-ant-')) {
+    throw new Error('Anthropic API key is not configured or invalid. Please configure an active API key.');
   }
 
-  if (!clientInstance) {
-    clientInstance = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY.trim(),
-      fetch: globalThis.fetch
-    });
+  if (!clientPool.has(activeKey)) {
+    clientPool.set(
+      activeKey,
+      new Anthropic({
+        apiKey: activeKey,
+        fetch: globalThis.fetch
+      })
+    );
   }
 
-  return clientInstance;
+  return clientPool.get(activeKey);
 }
 
 module.exports = {

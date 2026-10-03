@@ -14,6 +14,7 @@ const { processAiTask } = require('../services/ai.service');
 async function processTask(req, res, next) {
   try {
     const userId = req.user.user_id;
+    const apiKeyId = req.body.apiKeyId || req.headers['x-api-key-id'] || null;
     const {
       taskType,
       prompt,
@@ -33,6 +34,7 @@ async function processTask(req, res, next) {
 
     const taskResult = await processAiTask({
       userId,
+      apiKeyId,
       taskType: taskType || 'custom',
       prompt,
       optimizedPrompt,
