@@ -98,7 +98,12 @@ async function getDashboardSummary(userId = null, role = 'USER', apiKeyId = null
   try {
     const reqFilter = { ...query };
     if (apiKeyId && apiKeyId !== 'all') {
-      reqFilter.api_key_id = Number(apiKeyId);
+      const numKey = Number(apiKeyId);
+      if (numKey === 1) {
+        reqFilter.$or = [{ api_key_id: 1 }, { api_key_id: null }, { api_key_id: { $exists: false } }];
+      } else {
+        reqFilter.api_key_id = numKey;
+      }
     }
 
     const matchingRequests = await ApiRequest.find(reqFilter, 'request_id task_id').lean();
@@ -164,7 +169,12 @@ async function getUsageRequests({
     query.user_id = userId;
   }
   if (apiKeyId && apiKeyId !== 'all') {
-    query.api_key_id = Number(apiKeyId);
+    const numKey = Number(apiKeyId);
+    if (numKey === 1) {
+      query.$or = [{ api_key_id: 1 }, { api_key_id: null }, { api_key_id: { $exists: false } }];
+    } else {
+      query.api_key_id = numKey;
+    }
   }
   if (model) {
     query.model = model;
@@ -331,7 +341,12 @@ async function getChartAnalytics(userId = null, role = 'USER', range = '7days', 
   const query = !isAdmin && userId ? { user_id: userId } : {};
 
   if (apiKeyId && apiKeyId !== 'all') {
-    query.api_key_id = Number(apiKeyId);
+    const numKey = Number(apiKeyId);
+    if (numKey === 1) {
+      query.$or = [{ api_key_id: 1 }, { api_key_id: null }, { api_key_id: { $exists: false } }];
+    } else {
+      query.api_key_id = numKey;
+    }
   }
 
   let daysBack = 7;
@@ -416,13 +431,24 @@ async function getChartAnalytics(userId = null, role = 'USER', range = '7days', 
 /**
  * Get usage breakdown grouped by user (MongoDB Atlas)
  */
-async function getUsageByUser(userId = null, role = 'USER') {
+async function getUsageByUser(userId = null, role = 'USER', apiKeyId = null) {
   const isAdmin = role === 'ADMIN';
   const userQuery = !isAdmin && userId ? { user_id: userId } : {};
 
   const users = await User.find(userQuery).lean();
-  const userRequests = await ApiRequest.find().lean();
-  const usages = await ApiUsage.find().lean();
+  const reqFilter = {};
+  if (apiKeyId && apiKeyId !== 'all') {
+    const numKey = Number(apiKeyId);
+    if (numKey === 1) {
+      reqFilter.$or = [{ api_key_id: 1 }, { api_key_id: null }, { api_key_id: { $exists: false } }];
+    } else {
+      reqFilter.api_key_id = numKey;
+    }
+  }
+
+  const userRequests = await ApiRequest.find(reqFilter).lean();
+  const requestIds = userRequests.map(r => r.request_id);
+  const usages = await ApiUsage.find({ request_id: { $in: requestIds } }).lean();
 
   const usageMap = new Map(usages.map(u => [u.request_id, u]));
 
@@ -463,17 +489,58 @@ async function getUsageByUser(userId = null, role = 'USER') {
 /**
  * Get detailed feature usage matrix (MongoDB Atlas)
  */
-async function getUsageByFeature(userId = null, role = 'USER') {
-  const features = await AiFeature.find().lean();
-  return features.map(f => ({
-    feature_id: f.feature_id,
-    feature_name: f.feature_name,
-    category: f.category,
-    description: f.description,
-    execution_count: 1,
-    total_tokens: 0,
-    total_cost: 0
-  }));
+async function getUsageByFeature(userId = null, role = 'USER', apiKeyId = null) {
+  const isAdmin = role === 'ADMIN';
+  const reqFilter = !isAdmin && userId ? { user_id: userId } : {};
+  if (apiKeyId && apiKeyId !== 'all') {
+    const numKey = Number(apiKeyId);
+    if (numKey === 1) {
+      reqFilter.$or = [{ api_key_id: 1 }, { api_key_id: null }, { api_key_id: { $exists: false } }];
+    } else {
+      reqFilter.api_key_id = numKey;
+    }
+  }
+
+  const requests = await ApiRequest.find(reqFilter).lean();
+  const taskIds = requests.map(r => r.task_id);
+  const reqIds = requests.map(r => r.request_id);
+
+  const [features, taskFeatures, usages] = await Promise.all([
+    AiFeature.find().lean(),
+    TaskFeature.find({ task_id: { $in: taskIds } }).lean(),
+    ApiUsage.find({ request_id: { $in: reqIds } }).lean()
+  ]);
+
+  const reqMap = new Map(requests.map(r => [r.task_id, r.request_id]));
+  const usageMap = new Map(usages.map(u => [u.request_id, u]));
+
+  return features.map(f => {
+    const tfs = taskFeatures.filter(tf => tf.feature_id === f.feature_id);
+    let count = tfs.length;
+    let tokens = 0;
+    let cost = 0;
+
+    tfs.forEach(tf => {
+      const reqId = reqMap.get(tf.task_id);
+      if (reqId) {
+        const u = usageMap.get(reqId);
+        if (u) {
+          tokens += (u.total_tokens || 0);
+          cost += (u.request_cost || 0);
+        }
+      }
+    });
+
+    return {
+      feature_id: f.feature_id,
+      feature_name: f.feature_name,
+      category: f.category,
+      description: f.description,
+      execution_count: count,
+      total_tokens: tokens,
+      total_cost: Number(cost.toFixed(6))
+    };
+  });
 }
 
 module.exports = {

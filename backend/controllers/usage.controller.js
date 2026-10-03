@@ -94,7 +94,8 @@ async function getByUser(req, res, next) {
   try {
     const userId = req.user.user_id;
     const role = req.user.role;
-    const data = await getUsageByUser(userId, role);
+    const apiKeyId = req.query.apiKeyId || req.headers['x-api-key-id'] || null;
+    const data = await getUsageByUser(userId, role, apiKeyId);
     res.json({
       success: true,
       data
@@ -108,7 +109,8 @@ async function getByFeature(req, res, next) {
   try {
     const userId = req.user.user_id;
     const role = req.user.role;
-    const data = await getUsageByFeature(userId, role);
+    const apiKeyId = req.query.apiKeyId || req.headers['x-api-key-id'] || null;
+    const data = await getUsageByFeature(userId, role, apiKeyId);
     res.json({
       success: true,
       data

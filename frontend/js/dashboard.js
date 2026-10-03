@@ -26,10 +26,14 @@ async function initDashboard() {
   await setupActiveKeySelector('global-active-key-select');
 
   window.addEventListener('activeKeyChanged', async () => {
+    historyCurrentPage = 1;
     await Promise.all([
       loadDashboardData(true),
       loadFileCountBadge()
     ]);
+    if (typeof refreshSidebarBudget === 'function') {
+      refreshSidebarBudget();
+    }
     const activeTab = document.querySelector('.sub-nav-tab.active')?.dataset?.tab || 'analytics';
     if (activeTab === 'history') await loadHistoryRequests();
     if (activeTab === 'users') await loadUsersUsage();
@@ -257,6 +261,9 @@ async function loadDashboardData(showLoading = true) {
     const chartRes = await api.getChartAnalytics(currentRange);
     initCharts(chartRes.data);
 
+    if (typeof refreshSidebarBudget === 'function') {
+      refreshSidebarBudget();
+    }
   } catch (err) {
     console.error('Failed to load dashboard data:', err);
     if (showLoading) {

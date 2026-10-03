@@ -25,7 +25,12 @@ async function getBudgetStatus(apiKeyId = null) {
   try {
     const query = {};
     if (apiKeyId && apiKeyId !== 'all') {
-      query.api_key_id = Number(apiKeyId);
+      const numKey = Number(apiKeyId);
+      if (numKey === 1) {
+        query.$or = [{ api_key_id: 1 }, { api_key_id: null }, { api_key_id: { $exists: false } }];
+      } else {
+        query.api_key_id = numKey;
+      }
     }
     const usages = await ApiUsage.find(query, 'request_cost').lean();
     totalRequests = usages.length;

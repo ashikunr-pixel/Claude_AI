@@ -162,6 +162,7 @@ async function refreshSidebarBudget() {
   try {
     const res = await api.getBudget();
     const b = res.data;
+    if (!b) return;
 
     const progressEl = document.getElementById('sidebar-budget-progress');
     const spentEl = document.getElementById('sidebar-budget-spent');
@@ -174,8 +175,21 @@ async function refreshSidebarBudget() {
       else progressEl.style.background = 'var(--accent-gradient)';
     }
 
-    if (spentEl) spentEl.textContent = `$${b.cumulativeSpent.toFixed(2)}`;
-    if (remainingEl) remainingEl.textContent = `$${b.remainingBudget.toFixed(2)} left`;
+    if (spentEl) {
+      const spent = Number(b.cumulativeSpent || 0);
+      if (spent === 0) {
+        spentEl.textContent = '$0.00';
+      } else if (spent < 0.01) {
+        spentEl.textContent = `$${spent.toFixed(4)}`;
+      } else {
+        spentEl.textContent = `$${spent.toFixed(2)}`;
+      }
+    }
+
+    if (remainingEl) {
+      const remaining = Number(b.remainingBudget !== undefined ? b.remainingBudget : 5.0);
+      remainingEl.textContent = `$${remaining.toFixed(2)} left`;
+    }
   } catch (err) {
     console.warn('Could not update sidebar budget widget:', err);
   }

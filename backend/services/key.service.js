@@ -71,7 +71,10 @@ async function listApiKeys(includeStats = true) {
 
     if (includeStats) {
       try {
-        const usages = await ApiUsage.find({ api_key_id: k.key_id }, 'request_cost total_tokens').lean();
+        const query = (k.key_id === 1)
+          ? { $or: [{ api_key_id: 1 }, { api_key_id: null }, { api_key_id: { $exists: false } }] }
+          : { api_key_id: k.key_id };
+        const usages = await ApiUsage.find(query, 'request_cost total_tokens').lean();
         totalRequests = usages.length;
         for (const u of usages) {
           totalCost += (u.request_cost || 0);
@@ -371,6 +374,19 @@ async function ensureDefaultKey() {
         updated_at: new Date()
       });
       logger.info('Auto-seeded secondary API key into MongoDB Atlas.');
+    }
+
+    // Always backfill any legacy requests and usages without api_key_id to key_id: 1
+    const backfillReq = await ApiRequest.updateMany(
+      { $or: [{ api_key_id: null }, { api_key_id: { $exists: false } }] },
+      { $set: { api_key_id: 1 } }
+    );
+    const backfillUsage = await ApiUsage.updateMany(
+      { $or: [{ api_key_id: null }, { api_key_id: { $exists: false } }] },
+      { $set: { api_key_id: 1 } }
+    );
+    if (backfillReq.modifiedCount > 0 || backfillUsage.modifiedCount > 0) {
+      logger.info(`Backfilled legacy requests (${backfillReq.modifiedCount}) and usages (${backfillUsage.modifiedCount}) to Key #1`);
     }
   } catch (err) {
     logger.warn('Warning during ensureDefaultKey:', err.message);
