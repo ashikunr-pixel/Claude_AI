@@ -159,7 +159,7 @@ async function resolveClaudeKey(requestedKeyId = null) {
   const defaultKey = await ApiKey.findOne({ status: 'ACTIVE', is_default: true }).lean();
   if (defaultKey) {
     const decrypted = decryptKey(defaultKey.encrypted_key);
-    if (decrypted) {
+    if (decrypted && decrypted.startsWith('sk-ant-')) {
       return {
         key_id: defaultKey.key_id,
         name: defaultKey.name,
@@ -170,10 +170,10 @@ async function resolveClaudeKey(requestedKeyId = null) {
   }
 
   // Fallback 2: Any active key in DB
-  const firstActive = await ApiKey.findOne({ status: 'ACTIVE' }).sort({ created_at: 1 }).lean();
+  const firstActive = await ApiKey.findOne({ status: 'ACTIVE' }).sort({ is_default: -1, created_at: 1 }).lean();
   if (firstActive) {
     const decrypted = decryptKey(firstActive.encrypted_key);
-    if (decrypted) {
+    if (decrypted && decrypted.startsWith('sk-ant-')) {
       return {
         key_id: firstActive.key_id,
         name: firstActive.name,
@@ -185,7 +185,7 @@ async function resolveClaudeKey(requestedKeyId = null) {
 
   // Fallback 3: Environment Variable
   const envKey = process.env.ANTHROPIC_API_KEY;
-  if (envKey && envKey.trim().length > 0) {
+  if (envKey && envKey.trim().startsWith('sk-ant-')) {
     return {
       key_id: 1,
       name: 'Default Environment Key',
@@ -334,46 +334,73 @@ async function touchApiKey(keyId) {
  */
 async function ensureDefaultKey() {
   try {
-    const existingDefault = await ApiKey.findOne({ is_default: true });
-    if (!existingDefault && process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY.startsWith('sk-ant-')) {
-      const plain = process.env.ANTHROPIC_API_KEY.trim();
-      const encrypted = encryptKey(plain);
-      const masked = maskKey(plain);
+    const envPrimary = (process.env.ANTHROPIC_API_KEY || '').trim();
+    if (envPrimary && envPrimary.startsWith('sk-ant-')) {
+      const encrypted = encryptKey(envPrimary);
+      const masked = maskKey(envPrimary);
 
-      await ApiKey.findOneAndUpdate(
-        { key_id: 1 },
-        {
-          $setOnInsert: {
-            key_id: 1,
-            name: 'Primary API Key (Default)',
-            encrypted_key: encrypted,
-            masked_key: masked,
-            status: 'ACTIVE',
-            is_default: true,
-            created_at: new Date(),
-            updated_at: new Date()
-          }
-        },
-        { upsert: true }
-      );
-      logger.info('Auto-seeded default API key from environment into MongoDB Atlas.');
+      const existingKey1 = await ApiKey.findOne({ key_id: 1 });
+      if (!existingKey1) {
+        await ApiKey.updateMany({}, { is_default: false });
+        await ApiKey.create({
+          key_id: 1,
+          name: 'Primary API Key (Default)',
+          encrypted_key: encrypted,
+          masked_key: masked,
+          status: 'ACTIVE',
+          is_default: true,
+          created_at: new Date(),
+          updated_at: new Date()
+        });
+        logger.info('Auto-seeded default API key from environment into MongoDB Atlas.');
+      } else {
+        const currentPlain = decryptKey(existingKey1.encrypted_key);
+        if (currentPlain !== envPrimary || !existingKey1.is_default || existingKey1.status !== 'ACTIVE') {
+          await ApiKey.updateMany({ key_id: { $ne: 1 } }, { is_default: false });
+          await ApiKey.updateOne(
+            { key_id: 1 },
+            {
+              $set: {
+                encrypted_key: encrypted,
+                masked_key: masked,
+                status: 'ACTIVE',
+                is_default: true,
+                updated_at: new Date()
+              }
+            }
+          );
+          logger.info('Synchronized Key #1 in MongoDB with active ANTHROPIC_API_KEY from environment.');
+        }
+      }
     }
 
-    // Seed secondary key if provided via environment
+    // Seed secondary key if provided via environment and not empty
     const secondaryPlain = (process.env.ANTHROPIC_SECONDARY_KEY || '').trim();
-    const existingSecondary = await ApiKey.findOne({ key_id: 2 });
-    if (!existingSecondary && secondaryPlain && secondaryPlain.startsWith('sk-ant-')) {
-      await ApiKey.create({
-        key_id: 2,
-        name: 'Secondary API Key',
-        encrypted_key: encryptKey(secondaryPlain),
-        masked_key: maskKey(secondaryPlain),
-        status: 'ACTIVE',
-        is_default: false,
-        created_at: new Date(),
-        updated_at: new Date()
-      });
-      logger.info('Auto-seeded secondary API key into MongoDB Atlas.');
+    if (secondaryPlain && secondaryPlain.startsWith('sk-ant-')) {
+      const existingSecondary = await ApiKey.findOne({ key_id: 2 });
+      if (!existingSecondary) {
+        await ApiKey.create({
+          key_id: 2,
+          name: 'Secondary API Key',
+          encrypted_key: encryptKey(secondaryPlain),
+          masked_key: maskKey(secondaryPlain),
+          status: 'ACTIVE',
+          is_default: false,
+          created_at: new Date(),
+          updated_at: new Date()
+        });
+        logger.info('Auto-seeded secondary API key into MongoDB Atlas.');
+      }
+    } else {
+      // Clean up stale or revoked secondary key if present
+      const existingSecondary = await ApiKey.findOne({ key_id: 2 });
+      if (existingSecondary) {
+        const dec = decryptKey(existingSecondary.encrypted_key);
+        if (!dec || dec.includes('8I6e468o') || dec === envPrimary) {
+          await ApiKey.deleteOne({ key_id: 2 });
+          logger.info('Removed stale/revoked secondary key from MongoDB Atlas.');
+        }
+      }
     }
 
     // Always backfill any legacy requests and usages without api_key_id to key_id: 1
